@@ -109,12 +109,12 @@ Or open the interactive dashboard:
 Messages carry an implicit **wake hint** that controls how the recipient reacts:
 
 | Type | Purpose | Wake | Typical Flow |
-|------|---------|:----:|--------------|
-| `assignment` | Leader → worker task assignment | 🔴 hard | Leader delegates work |
-| `question` | Clarification request | 🟡 soft | Anyone asks a question |
-| `blocked` | Escalation needing attention | 🔴 hard | Worker hits a wall |
-| `completion_report` | Work finished | 🔴/🟡 | Worker reports back |
-| `fyi` | Informational update | ⚪ none* | Context sharing |
+|------|---------|------|--------------|
+| `assignment` | Leader → worker task assignment | hard | Leader delegates work |
+| `question` | Clarification request | soft | Anyone asks a question |
+| `blocked` | Escalation needing attention | hard | Worker hits a wall |
+| `completion_report` | Work finished | hard (leader) · soft (teammate) | Worker reports back |
+| `fyi` | Informational update | none* | Context sharing |
 
 > \* *Peer handoff exception:* when a non-leader sends `fyi` to an idle teammate, wake is auto-upgraded to `soft` so the handoff doesn't stall silently.
 
@@ -122,15 +122,18 @@ Messages carry an implicit **wake hint** that controls how the recipient reacts:
 
 ## 👥 Built-in Roles
 
-| Role | Tools | Best For |
-|------|-------|----------|
-| 🔬 **researcher** | `read` `grep` `find` `ls` + collaboration tools | Codebase analysis, documentation research |
-| 📋 **planner** | `read` `grep` `find` `ls` + collaboration tools | Task decomposition, acceptance criteria |
-| 🛠 **implementer** | `read` `grep` `find` `ls` `bash` `edit` `write` + collaboration tools | Code changes, file creation, test runs |
+**🔬 researcher** — `read` `grep` `find` `ls` + collab
+> Codebase analysis, documentation research
 
-> **Collaboration tools** = `agentteam_send` + `agentteam_receive` + `agentteam_task`
+**📋 planner** — `read` `grep` `find` `ls` + collab
+> Task decomposition, acceptance criteria
 
-Add custom agents in `.pi/agents/` or `~/.pi/agent/agents/` and use those role names when spawning.
+**🛠 implementer** — `read` `grep` `find` `ls` `bash` `edit` `write` + collab
+> Code changes, file creation, test runs
+
+> **collab** = `agentteam_send` + `agentteam_receive` + `agentteam_task`
+>
+> Add custom agents in `.pi/agents/` or `~/.pi/agent/agents/` and use those role names when spawning.
 
 ---
 
