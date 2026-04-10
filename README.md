@@ -22,7 +22,7 @@ each running in a visible tmux pane, collaborating through shared tasks and type
 | 🖥️ | **tmux-native swarm** | Each teammate is a real `pi` session in its own pane — watch them work in real time |
 | 📋 | **Shared task board** | Create, claim, update, complete — full lifecycle tracking across the team |
 | 💬 | **Typed messaging** | `assignment` · `question` · `blocked` · `completion_report` · `fyi` — each with auto-wake semantics |
-| 🎯 | **Role-based access** | Researcher (read-only) → Planner (read-only) → Implementer (full tools) — least privilege by default |
+| 🎯 | **Role-based tool guard** | Researcher (read-only) → Planner (read-only) → Implementer (full tools) — least privilege by default |
 | 📡 | **Event-driven wake** | Teammates auto-wake on actionable messages; no polling, no wasted tokens |
 | 📊 | **Interactive `/team` panel** | Browse members, tasks, mailbox — all from a keyboard-driven dashboard |
 | 🔗 | **Peer handoff** | Workers coordinate directly (researcher → planner) without going through the leader |
@@ -36,7 +36,7 @@ each running in a visible tmux pane, collaborating through shared tasks and type
 pi install npm:pi-agentteam
 ```
 
-**Requirements:** [pi](https://github.com/badlogic/pi-mono) ≥ 0.60 · [tmux](https://github.com/tmux/tmux) ≥ 3.3 · Node.js ≥ 22
+**Requirements:** [pi](https://github.com/badlogic/pi-mono) ≥ 0.60 · [tmux](https://github.com/tmux/tmux)
 
 ---
 
@@ -124,13 +124,13 @@ Messages carry an implicit **wake hint** that controls how the recipient reacts:
 
 | Role | Tools | Best For |
 |------|-------|----------|
-| 🔬 **researcher** | `read` `grep` `find` `ls` + collaboration | Codebase analysis, documentation research |
-| 📋 **planner** | `read` `grep` `find` `ls` + collaboration | Task decomposition, acceptance criteria |
-| 🛠 **implementer** | `read` `grep` `find` `ls` `bash` `edit` `write` + collaboration | Code changes, file creation, test runs |
+| 🔬 **researcher** | `read` `grep` `find` `ls` + collaboration tools | Codebase analysis, documentation research |
+| 📋 **planner** | `read` `grep` `find` `ls` + collaboration tools | Task decomposition, acceptance criteria |
+| 🛠 **implementer** | `read` `grep` `find` `ls` `bash` `edit` `write` + collaboration tools | Code changes, file creation, test runs |
 
-**Aliases:** `plan`/`planning` → planner · `research` → researcher · `implement`/`developer` → implementer
+> **Collaboration tools** = `agentteam_send` + `agentteam_receive` + `agentteam_task`
 
-Add custom agents in `.pi/agents/` and use those role names when spawning.
+Add custom agents in `.pi/agents/` or `~/.pi/agent/agents/` and use those role names when spawning.
 
 ---
 
@@ -141,7 +141,6 @@ Create `~/.pi/agent/extensions/agentteam/config.json` to assign models per role:
 ```json
 {
   "agentModels": {
-    "leader": "glm-5.1",
     "planner": "glm-5.1",
     "researcher": "glm-5.1",
     "implementer": "gpt-5.3-codex"
@@ -149,7 +148,7 @@ Create `~/.pi/agent/extensions/agentteam/config.json` to assign models per role:
 }
 ```
 
-Values are model selectors from `~/.pi/agent/models.json`. Empty string = use the default model.
+Values are model selectors from `~/.pi/agent/models.json`. Empty string or missing key = use the default model. The leader always uses your current session model.
 
 ---
 
@@ -164,7 +163,6 @@ Values are model selectors from `~/.pi/agent/models.json`. Empty string = use th
 | `agentteam_send` | Send a typed message |
 | `agentteam_receive` | Pull unread mailbox messages |
 | `agentteam_task` | Manage shared tasks (`create` · `claim` · `update` · `complete` · `list` · `note`) |
-| `agentteam_dispatch` | Auto-assign pending tasks to idle teammates |
 
 ### Commands
 
@@ -183,7 +181,7 @@ Values are model selectors from `~/.pi/agent/models.json`. Empty string = use th
 ```
 index.ts              ← Extension entry point
 ├── tools/            ← agentteam_create, spawn, send, receive, task
-├── commands/         ← /team dashboard, /team-cleanup
+├── commands/         ← /team dashboard, /team-cleanup, /team-delete
 ├── hooks/            ← Agent lifecycle, session binding, tool guard
 ├── teamPanel/        ← Interactive dashboard (layout, view model, input)
 ├── state.ts          ← File-based team state, mailbox, locks

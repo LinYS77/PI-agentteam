@@ -23,9 +23,6 @@
   "bugs": {
     "url": "https://github.com/LinYS77/PI-agentteam/issues"
   },
-  "engines": {
-    "node": ">=22.0.0"
-  },
   "files": [
     "*.ts",
     "agents/",
