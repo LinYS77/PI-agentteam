@@ -54,7 +54,7 @@ export function registerTeamCommands(pi: ExtensionAPI, deps: CommandHandlerDeps)
       }
       if (result?.type === 'open-leader-session') {
         const team = readTeamState(teamName)
-        const swarm = ensureSwarmWindow(team?.members?.[TEAM_LEAD] ? {
+        const swarm = await ensureSwarmWindow(team?.members?.[TEAM_LEAD] ? {
           target: team.members[TEAM_LEAD]!.windowTarget,
           leaderPaneId: team.members[TEAM_LEAD]!.paneId,
         } : undefined)

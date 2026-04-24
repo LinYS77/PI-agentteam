@@ -314,8 +314,44 @@ module.exports = {
       'pane reconcile cache should be invalidated after pane-loss healing so immediate second reconcile still checks live panes',
     )
 
+    const txTeam = modules.state.createInitialTeamState({
+      teamName: 'transaction-suite',
+      leaderSessionFile: '/tmp/transaction-leader.jsonl',
+      leaderCwd: '/tmp',
+    })
+    modules.state.upsertMember(txTeam, {
+      name: 'transaction-worker',
+      role: 'researcher',
+      cwd: '/tmp',
+      sessionFile: '/tmp/transaction-worker.jsonl',
+      status: 'idle',
+    })
+    modules.state.writeTeamState(txTeam)
+
+    const txUpdated = modules.state.updateTeamState('transaction-suite', team => {
+      team.description = 'updated through transaction api'
+      modules.state.updateMemberStatus(team, 'transaction-worker', {
+        status: 'running',
+        lastWakeReason: 'transaction update',
+      })
+      modules.state.createTask(team, {
+        title: 'transaction task',
+        description: 'created inside updateTeamState',
+      })
+    })
+
+    assert.ok(txUpdated, 'updateTeamState should return updated team state')
+    assert.equal(txUpdated.description, 'updated through transaction api')
+    assert.equal(txUpdated.members['transaction-worker'].status, 'running')
+    assert.equal(txUpdated.members['transaction-worker'].lastWakeReason, 'transaction update')
+    assert.ok(txUpdated.tasks.T001, 'updateTeamState should persist task creation')
+
+    const txMissing = modules.state.updateTeamState('missing-transaction-suite', team => team)
+    assert.equal(txMissing, null, 'updateTeamState should return null for missing team')
+
     modules.state.deleteTeamState('status-key-suite')
     modules.state.deleteTeamState('storage-cache-suite')
     modules.state.deleteTeamState('reconcile-invalidate-suite')
+    modules.state.deleteTeamState('transaction-suite')
   },
 }

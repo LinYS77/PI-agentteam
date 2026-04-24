@@ -4,7 +4,10 @@ const path = require('node:path')
 const os = require('node:os')
 const assert = require('node:assert/strict')
 
-const EXT_ROOT = '/home/linyusheng/.pi/agent/extensions/agentteam'
+const DEFAULT_EXT_ROOT = path.resolve(__dirname, '..')
+const EXT_ROOT = process.env.AGENTTEAM_EXT_ROOT
+  ? path.resolve(process.env.AGENTTEAM_EXT_ROOT)
+  : DEFAULT_EXT_ROOT
 const TS_ROOT = '/home/linyusheng/.nvm/versions/node/v24.9.0/lib/node_modules/typescript'
 const ts = require(TS_ROOT)
 
@@ -125,7 +128,7 @@ module.exports = {
   )
 
   writeFile(
-    path.join(STUB_ROOT, 'sinclair-typebox.js'),
+    path.join(STUB_ROOT, 'typebox.js'),
     `
 const Type = {
   Object: o => ({ kind: 'object', o }),
@@ -142,12 +145,24 @@ const Type = {
 module.exports = { Type }
 `,
   )
+
+  writeFile(
+    path.join(STUB_ROOT, 'pi-ai.js'),
+    `
+const { Type } = require('./typebox.js')
+function StringEnum(values, options) {
+  return { kind: 'string-enum', enum: [...values], options: options || {} }
+}
+module.exports = { Type, StringEnum }
+`,
+  )
 }
 
 function mapImport(specifier) {
   if (specifier === '@mariozechner/pi-coding-agent') return path.join(STUB_ROOT, 'pi-coding-agent.js')
+  if (specifier === '@mariozechner/pi-ai') return path.join(STUB_ROOT, 'pi-ai.js')
   if (specifier === '@mariozechner/pi-tui') return path.join(STUB_ROOT, 'pi-tui.js')
-  if (specifier === '@sinclair/typebox') return path.join(STUB_ROOT, 'sinclair-typebox.js')
+  if (specifier === 'typebox') return path.join(STUB_ROOT, 'typebox.js')
   return specifier
 }
 
@@ -270,17 +285,17 @@ function setupRuntimePatches(modules) {
   tmux.captureCurrentPaneBinding = () => ({ paneId: '%leader', target: 'test:@1' })
   tmux.resolvePaneBinding = paneId => (livePanes.has(paneId) ? { paneId, target: 'test:@1' } : null)
   tmux.paneExists = paneId => livePanes.has(paneId)
-  tmux.createTeammatePane = () => {
+  tmux.createTeammatePane = async () => {
     const paneId = `%${nextPane++}`
     livePanes.add(paneId)
     return { paneId, target: 'test:@1' }
   }
-  tmux.waitForPaneAppStart = () => true
-  tmux.sendPromptToPane = (paneId, prompt) => { sentPrompts.push({ paneId, prompt }) }
+  tmux.waitForPaneAppStart = async () => true
+  tmux.sendPromptToPane = async (paneId, prompt) => { sentPrompts.push({ paneId, prompt }) }
   tmux.sendEnterToPane = () => {}
   tmux.syncPaneLabelsForTeam = () => {}
   tmux.clearPaneLabelsForTeam = () => {}
-  tmux.ensureSwarmWindow = () => ({ session: 'test', window: '@1', target: 'test:@1', leaderPaneId: '%leader' })
+  tmux.ensureSwarmWindow = async () => ({ session: 'test', window: '@1', target: 'test:@1', leaderPaneId: '%leader' })
   tmux.focusPane = () => {}
   tmux.killPane = paneId => { livePanes.delete(paneId) }
   tmux.listAgentTeamPanes = () => []
@@ -320,6 +335,7 @@ function loadModules() {
 function loadSuites() {
   const suitesDir = path.join(__dirname, 'suites')
   const preferredOrder = [
+    'package-install-smoke.cjs',
     'tools-state.cjs',
     'commands.cjs',
     'protocol-decisions-orchestration.cjs',

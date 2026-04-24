@@ -16,7 +16,7 @@ import type {
 } from './viewModel.js'
 import { mailboxType } from './viewModel.js'
 
-export type RenderLayoutInput = {
+type RenderLayoutInput = {
   width: number
   data: PanelData
   state: TeamPanelState

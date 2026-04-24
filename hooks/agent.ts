@@ -3,7 +3,7 @@ import { readTeamState, updateMemberStatus, writeTeamState } from '../state.js'
 import { getCurrentMemberName, getCurrentTeamName } from '../session.js'
 import { TEAM_LEAD } from '../types.js'
 
-export type AgentHookDeps = {
+type AgentHookDeps = {
   cancelPendingNudge: (memberName: string) => void
   resetMailboxSyncKey: () => void
   runMailboxSync: (ctx: ExtensionContext) => void

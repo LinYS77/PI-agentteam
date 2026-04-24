@@ -5,7 +5,7 @@ import type {
   TeamTask,
 } from '../types.js'
 
-export type AppendStructuredTaskNote = (
+type AppendStructuredTaskNote = (
   task: TeamTask,
   author: string,
   text: string,
@@ -18,7 +18,7 @@ export type AppendStructuredTaskNote = (
   },
 ) => void
 
-export type MaybeLinkTaskNoteToMessage = (
+type MaybeLinkTaskNoteToMessage = (
   task: TeamTask,
   author: string,
   payload: {
@@ -31,6 +31,16 @@ export type MaybeLinkTaskNoteToMessage = (
   },
 ) => void
 
+export type WakeOutcome = {
+  ok: boolean
+  recipient: string
+  reason: string
+  error?: string
+  prompt?: string
+  wakeHint?: 'none' | 'soft' | 'hard'
+  nudgeScheduled?: boolean
+}
+
 export type ToolHandlerDeps = {
   sanitizeTeamName: (name: string) => string
   sanitizeWorkerName: (name: string) => string
@@ -40,7 +50,7 @@ export type ToolHandlerDeps = {
   ensureTeamForSession: (ctx: ExtensionContext) => TeamState | null
   currentActor: (ctx: ExtensionContext) => string
   healMemberPaneBinding: (member: TeamState['members'][string]) => void
-  wakeWorker: (team: TeamState, memberName: string, explicitTask?: string) => boolean
+  wakeWorker: (team: TeamState, memberName: string, explicitTask?: string) => Promise<WakeOutcome>
   wakeLeaderIfNeeded: (
     team: TeamState,
     message: {
@@ -50,7 +60,7 @@ export type ToolHandlerDeps = {
       summary?: string
       text?: string
     },
-  ) => boolean
+  ) => Promise<WakeOutcome>
   appendStructuredTaskNote: AppendStructuredTaskNote
   maybeLinkTaskNoteToMessage: MaybeLinkTaskNoteToMessage
   invalidateStatus: (ctx: ExtensionContext) => void

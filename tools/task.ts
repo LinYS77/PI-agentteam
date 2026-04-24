@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent'
-import { Type } from '@sinclair/typebox'
+import { StringEnum } from '@mariozechner/pi-ai'
+import { Type } from 'typebox'
 import { createTask, pushMailboxMessage, writeTeamState } from '../state.js'
 import { defaultThreadIdForTask } from '../protocol.js'
 import { TEAM_LEAD } from '../types.js'
@@ -8,25 +9,13 @@ import type { ToolHandlerDeps } from './shared.js'
 import { formatTask } from './shared.js'
 
 const TeamTaskParams = Type.Object({
-  action: Type.Union([
-    Type.Literal('create'),
-    Type.Literal('list'),
-    Type.Literal('claim'),
-    Type.Literal('update'),
-    Type.Literal('complete'),
-    Type.Literal('note'),
-  ]),
+  action: StringEnum(['create', 'list', 'claim', 'update', 'complete', 'note'] as const),
   taskId: Type.Optional(Type.String()),
   title: Type.Optional(Type.String()),
   description: Type.Optional(Type.String()),
   owner: Type.Optional(Type.String()),
   status: Type.Optional(
-    Type.Union([
-      Type.Literal('pending'),
-      Type.Literal('in_progress'),
-      Type.Literal('blocked'),
-      Type.Literal('completed'),
-    ]),
+    StringEnum(['pending', 'in_progress', 'blocked', 'completed'] as const),
   ),
   note: Type.Optional(Type.String()),
   blockedBy: Type.Optional(Type.Array(Type.String())),
@@ -60,7 +49,7 @@ function ensureTaskPrivilege(
   return `Task action '${action}' is not allowed for ${actor} (${role || 'worker'}). Allowed: list/note/complete${role === 'planner' ? '/create/claim/update' : ''}`
 }
 
-function buildImplementerCompletionNote(note?: string): string {
+function buildImplementationCompletionNote(note?: string): string {
   const trimmed = note?.trim() ?? ''
   const template = [
     'Change summary:',
@@ -77,12 +66,17 @@ function buildImplementerCompletionNote(note?: string): string {
   return `${trimmed}\n\n${template}`
 }
 
-
 export function registerTaskTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void {
   pi.registerTool({
     name: 'agentteam_task',
     label: 'AgentTeam Task',
     description: 'Create, list, claim, update, annotate, and complete shared team tasks.',
+    promptSnippet: 'Manage the shared agentteam task board: create, list, claim, update, note, and complete tasks.',
+    promptGuidelines: [
+      'Use agentteam_task before delegation so teammate work is tracked by taskId.',
+      'Use agentteam_task action=create for concrete work items, action=claim to assign an owner, action=note for durable findings, and action=complete for explicit completion reports.',
+      'When reporting implementation completion through agentteam_task, include files changed and checks run in the note when possible.',
+    ],
     parameters: TeamTaskParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const team = deps.ensureTeamForSession(ctx)
@@ -196,7 +190,7 @@ export function registerTaskTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
               to: TEAM_LEAD,
             },
           })
-          deps.wakeLeaderIfNeeded(team, {
+          await deps.wakeLeaderIfNeeded(team, {
             type: 'blocked',
             wakeHint: 'hard',
             from: actor,
@@ -212,7 +206,7 @@ export function registerTaskTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
           team.members[task.owner] &&
           team.members[task.owner]!.status !== 'running'
         ) {
-          deps.wakeWorker(team, task.owner)
+          await deps.wakeWorker(team, task.owner)
         }
         deps.invalidateStatus(ctx)
         return { content: [{ type: 'text', text: `Updated ${formatTask(task)}` }], details: { task } }
@@ -247,7 +241,7 @@ export function registerTaskTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
               to: TEAM_LEAD,
             },
           })
-          deps.wakeLeaderIfNeeded(team, {
+          await deps.wakeLeaderIfNeeded(team, {
             type: 'fyi',
             wakeHint: 'soft',
             from: actor,
@@ -269,7 +263,7 @@ export function registerTaskTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
         task.status = 'completed'
         task.updatedAt = Date.now()
         const note = role === 'implementer'
-          ? buildImplementerCompletionNote(params.note)
+          ? buildImplementationCompletionNote(params.note)
           : (params.note ?? 'Task completed')
         deps.appendStructuredTaskNote(task, actor, note, {
           messageType: 'completion_report',
@@ -297,7 +291,7 @@ export function registerTaskTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
               to: TEAM_LEAD,
             },
           })
-          deps.wakeLeaderIfNeeded(team, {
+          await deps.wakeLeaderIfNeeded(team, {
             type: 'completion_report',
             wakeHint: 'hard',
             from: actor,

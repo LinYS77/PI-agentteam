@@ -9,7 +9,7 @@ import type {
   TeamPanelState,
 } from './viewModel.js'
 
-export type TeamPanelInputDeps = {
+type TeamPanelInputDeps = {
   done: (result: TeamPanelResult) => void
   refresh: () => void
   onSyncMailbox: () => void

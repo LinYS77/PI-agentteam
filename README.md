@@ -22,7 +22,7 @@ each running in a visible tmux pane, collaborating through shared tasks and type
 | 🖥️ | **tmux-native swarm** | Each teammate is a real `pi` session in its own pane — watch them work in real time |
 | 📋 | **Shared task board** | Create, claim, update, complete — full lifecycle tracking across the team |
 | 💬 | **Typed messaging** | `assignment` · `question` · `blocked` · `completion_report` · `fyi` — each with auto-wake semantics |
-| 🎯 | **Role-based tool guard** | Researcher (read-only) → Planner (read-only) → Implementer (full tools) — least privilege by default |
+| 🎯 | **Role-based tool guard** | Researcher/Planner (read-only) → Implementer (full tools) — least privilege by default |
 | 📡 | **Event-driven wake** | Teammates auto-wake on actionable messages; no polling, no wasted tokens |
 | 📊 | **Interactive `/team` panel** | Browse members, tasks, mailbox — all from a keyboard-driven dashboard |
 | 🔗 | **Peer handoff** | Workers coordinate directly (researcher → planner) without going through the leader |
@@ -46,7 +46,7 @@ pi install npm:pi-agentteam
 You (leader):
   Create a team and spawn a researcher to analyze the build pipeline.
 
-  > agentteam_create("my-project", { description: "Optimize the build pipeline" })
+  > agentteam_create({ team_name: "my-project", description: "Optimize the build pipeline" })
   > agentteam_spawn({ name: "research", role: "researcher",
                       task: "Analyze the build pipeline and report bottlenecks" })
   > agentteam_spawn({ name: "plan", role: "planner" })
@@ -122,6 +122,8 @@ Messages carry an implicit **wake hint** that controls how the recipient reacts:
 
 ## 👥 Built-in Roles
 
+agentteam intentionally keeps a small fixed role set for predictable permissions and prompts.
+
 **🔬 researcher** — `read` `grep` `find` `ls` + collab
 > Codebase analysis, documentation research
 
@@ -132,8 +134,6 @@ Messages carry an implicit **wake hint** that controls how the recipient reacts:
 > Code changes, file creation, test runs
 
 > **collab** = `agentteam_send` + `agentteam_receive` + `agentteam_task`
->
-> Add custom agents in `.pi/agents/` or `~/.pi/agent/agents/` and use those role names when spawning.
 
 ---
 
@@ -187,14 +187,16 @@ index.ts              ← Extension entry point
 ├── commands/         ← /team dashboard, /team-cleanup, /team-delete
 ├── hooks/            ← Agent lifecycle, session binding, tool guard
 ├── teamPanel/        ← Interactive dashboard (layout, view model, input)
-├── state.ts          ← File-based team state, mailbox, locks
+├── state.ts          ← State facade
+├── state/            ← File-based stores (team, mailbox, bindings, merge policy)
 ├── runtime.ts        ← Worker wake, pane management
 ├── runtimeService.ts ← Leader mailbox sync, digest injection
 ├── protocol.ts       ← Message type defaults & wake hints
 ├── orchestration.ts  ← Leader digest (coordination counters)
 ├── policy.ts         ← Leader delegation policy
 ├── agents.ts         ← Role discovery & agent loading
-├── tmux.ts           ← tmux pane/window management
+├── tmux.ts           ← tmux facade
+├── tmux/             ← tmux client, pane/window/wake/label helpers
 ├── types.ts          ← Shared type definitions
 └── agents/           ← Bundled role prompts (markdown)
     ├── researcher.md
@@ -215,7 +217,7 @@ index.ts              ← Extension entry point
 ## ✅ Tests
 
 ```bash
-node tests/run.cjs
+npm test
 ```
 
 | Suite | Covers |
@@ -231,7 +233,7 @@ node tests/run.cjs
 ## ⚠️ Limitations
 
 - Workers are separate `pi` sessions in tmux panes, not in-process subagents
-- Creating a teammate and starting work are two steps (`spawn` + `send`)
+- Passing `task` to `agentteam_spawn` starts work immediately; omitting it creates an idle teammate for later `send`/`task` follow-up
 - State is local to one machine (no remote/distributed support)
 - Requires tmux; Windows terminals not supported (WSL works)
 

@@ -13,7 +13,7 @@ export type RuntimeHookState = {
   lastBlockedFingerprintsForDigest: string[]
 }
 
-export type RuntimeService = {
+type RuntimeService = {
   hookState: RuntimeHookState
   updateDigestState: (patch: Partial<RuntimeHookState>) => void
   attachCurrentSessionIfNeeded: typeof attachCurrentSessionIfNeeded

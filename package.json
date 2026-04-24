@@ -1,6 +1,6 @@
 {
   "name": "pi-agentteam",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "Multi-agent team orchestration for pi — leader-coordinator pattern with researcher, planner, and implementer teammates in tmux panes",
   "keywords": [
     "pi-package",
@@ -28,8 +28,9 @@
     "agents/",
     "commands/",
     "hooks/",
+    "state/",
     "teamPanel/",
-    "tests/",
+    "tmux/",
     "tools/",
     "config.json",
     "README.md",
@@ -41,8 +42,10 @@
     ]
   },
   "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",
-    "@mariozechner/pi-tui": "*"
+    "@mariozechner/pi-tui": "*",
+    "typebox": "*"
   },
   "scripts": {
     "test": "node tests/run.cjs"

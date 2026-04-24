@@ -55,16 +55,12 @@ export default function agentTeamExtension(pi: ExtensionAPI): void {
   })
 
   registerAgentTeamCommands(pi, {
-    sanitizeTeamName,
     sanitizeWorkerName,
     ensureTeamForSession,
     deleteTeamRuntime,
     invalidateStatus: runtime.invalidateStatus,
     resetMailboxSyncKey: runtime.resetMailboxSyncKey,
     runMailboxSync: runtime.runMailboxSync,
-    wakeWorker,
-    appendStructuredTaskNote,
-    maybeLinkTaskNoteToMessage,
   })
 
   registerAgentTeamTools(pi, {

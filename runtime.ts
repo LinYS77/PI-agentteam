@@ -47,6 +47,20 @@ export type AttachedSessionContext = {
   source: 'cached' | 'derived' | 'cleared' | 'none'
 }
 
+export type WakeResult =
+  | { ok: true; recipient: string; wakeHint: TeamMessageWakeHint; reason: string; prompt: string; nudgeScheduled?: boolean }
+  | { ok: false; recipient: string; wakeHint?: TeamMessageWakeHint; reason: string; error?: string }
+
+export type WakeNudgeConfig = {
+  enabled: boolean
+  delayMs: number
+}
+
+const DEFAULT_WAKE_NUDGE_CONFIG: WakeNudgeConfig = {
+  enabled: true,
+  delayMs: 8000,
+}
+
 export function sanitizeWorkerName(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 }
@@ -122,7 +136,7 @@ export function currentActor(ctx: ExtensionContext): string {
   return getCurrentMemberName(ctx) ?? TEAM_LEAD
 }
 
-export function wakeLeaderIfNeeded(
+async function wakeLeaderInternal(
   team: TeamState,
   message: {
     type?: TeamMessageType
@@ -131,25 +145,36 @@ export function wakeLeaderIfNeeded(
     summary?: string
     text?: string
   },
-): boolean {
-  const leader = team.members[TEAM_LEAD]
-  if (!leader || !leader.paneId) return false
+): Promise<WakeResult> {
   const type = normalizeMessageType(message.type)
   const wakeHint = normalizeWakeHint(type, message.wakeHint, TEAM_LEAD)
-  if (!shouldWakeRecipient(wakeHint)) return false
-  if (!paneExists(leader.paneId)) return false
+  const leader = team.members[TEAM_LEAD]
+  if (!leader || !leader.paneId) return { ok: false, recipient: TEAM_LEAD, wakeHint, reason: 'leader pane binding missing' }
+  if (!shouldWakeRecipient(wakeHint)) return { ok: false, recipient: TEAM_LEAD, wakeHint, reason: 'wake hint does not require wake' }
+  if (!paneExists(leader.paneId)) return { ok: false, recipient: TEAM_LEAD, wakeHint, reason: 'leader pane missing' }
 
   const sender = message.from ? `from ${message.from}` : 'from teammate'
   const summary = oneLine(message.summary ?? message.text ?? type)
   const prompt = `Agentteam signal (${type}) ${sender}: ${summary}. Please triage unread leader mailbox now (agentteam_receive) and coordinate next step.`
 
-  sendPromptToPane(leader.paneId, prompt)
+  try {
+    await sendPromptToPane(leader.paneId, prompt)
+  } catch (error) {
+    const err = error instanceof Error ? error.message : String(error)
+    updateMemberStatus(team, TEAM_LEAD, {
+      status: 'error',
+      lastWakeReason: 'leader wake failed',
+      lastError: err,
+    })
+    return { ok: false, recipient: TEAM_LEAD, wakeHint, reason: 'wake failed', error: err }
+  }
+
   updateMemberStatus(team, TEAM_LEAD, {
     status: 'running',
     lastWakeReason: `signal ${type}`,
     lastError: undefined,
   })
-  return true
+  return { ok: true, recipient: TEAM_LEAD, wakeHint, reason: `signal ${type}`, prompt }
 }
 
 function buildMemberTurnPrompt(team: TeamState, memberName: string, explicitTask?: string): string | null {
@@ -194,18 +219,23 @@ export function cancelPendingNudge(memberName: string): void {
   }
 }
 
-export function wakeWorker(team: TeamState, memberName: string, explicitTask?: string): boolean {
+async function wakeWorkerInternal(
+  team: TeamState,
+  memberName: string,
+  explicitTask?: string,
+  nudgeConfig: WakeNudgeConfig = DEFAULT_WAKE_NUDGE_CONFIG,
+): Promise<WakeResult> {
   const member = team.members[memberName]
-  if (!member || member.name === TEAM_LEAD) return false
+  if (!member || member.name === TEAM_LEAD) return { ok: false, recipient: memberName, reason: 'member not found or leader' }
   healMemberPaneBinding(member)
-  if (!member.paneId) return false
+  if (!member.paneId) return { ok: false, recipient: memberName, reason: 'member pane binding missing' }
   if (member.status === 'running' && !explicitTask && member.lastWakeReason === 'processing prompt') {
-    return false
+    return { ok: false, recipient: memberName, reason: 'member already processing prompt' }
   }
 
   const unread = peekUnreadMailbox(team.name, memberName)
   const prompt = buildMemberTurnPrompt(team, memberName, explicitTask)
-  if (!prompt) return false
+  if (!prompt) return { ok: false, recipient: memberName, reason: 'no prompt-worthy task, boot prompt, or unread message' }
 
   const wakeReason = explicitTask ? 'direct assignment' : unread.length > 0 ? 'mailbox/task update' : 'task update'
   cancelPendingNudge(memberName)
@@ -218,7 +248,7 @@ export function wakeWorker(team: TeamState, memberName: string, explicitTask?: s
   writeTeamState(team)
 
   try {
-    sendPromptToPane(member.paneId, prompt)
+    await sendPromptToPane(member.paneId, prompt)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     healMemberPaneBinding(member)
@@ -228,7 +258,7 @@ export function wakeWorker(team: TeamState, memberName: string, explicitTask?: s
       lastError: message,
     })
     writeTeamState(team)
-    return false
+    return { ok: false, recipient: memberName, reason: 'wake failed', error: message }
   }
 
   markMailboxMessagesRead(
@@ -237,28 +267,54 @@ export function wakeWorker(team: TeamState, memberName: string, explicitTask?: s
     unread.map(msg => msg.id),
   )
 
-  // Reliability nudge: some shells/TUI setups occasionally lose the first Enter-triggered run.
-  // Cancellable: cleared on agent_start so we never send Enter while agent is already responding.
-  const wakeAt = Date.now()
-  const nudgeTimer = setTimeout(() => {
-    pendingNudges.delete(memberName)
-    try {
-      const latest = readTeamState(team.name)
-      const m = latest?.members?.[memberName]
-      if (!latest || !m || m.status !== 'running' || !m.paneId || !paneExists(m.paneId)) return
-      if (m.updatedAt > wakeAt + 2000) return
-      const pendingUnread = peekUnreadMailbox(latest.name, memberName)
-      if (pendingUnread.length === 0) {
-        sendEnterToPane(m.paneId)
+  let nudgeScheduled = false
+  if (nudgeConfig.enabled && nudgeConfig.delayMs > 0) {
+    // Reliability nudge: some shells/TUI setups occasionally lose the first Enter-triggered run.
+    // Cancellable: cleared on agent_start so we never send Enter while agent is already responding.
+    const wakeAt = Date.now()
+    const nudgeTimer = setTimeout(() => {
+      pendingNudges.delete(memberName)
+      try {
+        const latest = readTeamState(team.name)
+        const m = latest?.members?.[memberName]
+        if (!latest || !m || m.status !== 'running' || !m.paneId || !paneExists(m.paneId)) return
+        if (m.updatedAt > wakeAt + 2000) return
+        const pendingUnread = peekUnreadMailbox(latest.name, memberName)
+        if (pendingUnread.length === 0) {
+          sendEnterToPane(m.paneId)
+        }
+      } catch {
+        // ignore best-effort nudge failures
       }
-    } catch {
-      // ignore best-effort nudge failures
-    }
-  }, 8000)
-  nudgeTimer.unref?.()
-  pendingNudges.set(memberName, nudgeTimer)
+    }, nudgeConfig.delayMs)
+    nudgeTimer.unref?.()
+    pendingNudges.set(memberName, nudgeTimer)
+    nudgeScheduled = true
+  }
 
-  return true
+  return { ok: true, recipient: memberName, wakeHint: explicitTask ? 'hard' : 'soft', reason: wakeReason, prompt, nudgeScheduled }
+}
+
+export async function wakeLeaderIfNeeded(
+  team: TeamState,
+  message: {
+    type?: TeamMessageType
+    wakeHint?: TeamMessageWakeHint
+    from?: string
+    summary?: string
+    text?: string
+  },
+): Promise<WakeResult> {
+  return wakeLeaderInternal(team, message)
+}
+
+export async function wakeWorker(
+  team: TeamState,
+  memberName: string,
+  explicitTask?: string,
+  nudgeConfig: WakeNudgeConfig = DEFAULT_WAKE_NUDGE_CONFIG,
+): Promise<WakeResult> {
+  return wakeWorkerInternal(team, memberName, explicitTask, nudgeConfig)
 }
 
 export function appendStructuredTaskNote(
@@ -341,7 +397,7 @@ export function refreshForSession(
     if (changed || leaderChanged) {
       writeTeamState(team)
     }
-    syncPaneLabelsForTeam(team)
+    void syncPaneLabelsForTeam(team)
   }
   ctx.ui.setStatus('agentteam', undefined)
   ctx.ui.setWidget('agentteam', undefined)
@@ -501,7 +557,7 @@ function killTeamPanes(team: TeamState, options?: { includeLeader?: boolean }): 
 }
 
 export function deleteTeamRuntime(team: TeamState, options?: { includeLeaderPane?: boolean }): void {
-  clearPaneLabelsForTeam(team)
+  void clearPaneLabelsForTeam(team)
   killTeamPanes(team, { includeLeader: options?.includeLeaderPane })
   deleteTeamState(team.name)
   invalidateMailboxEnsureCache(team.name)

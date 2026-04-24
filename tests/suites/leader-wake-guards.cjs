@@ -245,7 +245,7 @@ module.exports = {
     )
 
     const originalSendPrompt = modules.tmux.sendPromptToPane
-    modules.tmux.sendPromptToPane = () => {
+    modules.tmux.sendPromptToPane = async () => {
       throw new Error('simulated wake failure')
     }
 

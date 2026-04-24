@@ -1,6 +1,6 @@
 import * as path from 'node:path'
 import type { ExtensionAPI } from '@mariozechner/pi-coding-agent'
-import { Type } from '@sinclair/typebox'
+import { Type } from 'typebox'
 import { discoverAgents } from '../agents.js'
 import {
   createInitialTeamState,
@@ -31,11 +31,10 @@ const TeamCreateParams = Type.Object({
 
 const TeamSpawnParams = Type.Object({
   name: Type.String({ description: 'Teammate display name' }),
-  role: Type.String({ description: 'Role or built-in agentteam agent name' }),
+  role: Type.String({ description: 'Built-in role: researcher, planner, or implementer' }),
   task: Type.Optional(Type.String({ description: 'Optional initial task to delegate. Omit to create only and leave the teammate idle.' })),
   cwd: Type.Optional(Type.String({ description: 'Working directory for the worker' })),
 })
-
 
 type SpawnResult = {
   ok: boolean
@@ -79,21 +78,28 @@ function ensureLeaderOnlyOperation(
   return actor === TEAM_LEAD ? null : `Only ${TEAM_LEAD} can perform this operation. Current actor: ${actor}`
 }
 
-function spawnOne(
+async function spawnOne(
   deps: ToolHandlerDeps,
   team: TeamState,
   assignment: { name: string; role: string; task?: string; cwd?: string },
   leaderCwd: string,
-): SpawnResult {
+): Promise<SpawnResult> {
   const workerName = deps.sanitizeWorkerName(assignment.name)
+  if (!workerName) {
+    return { ok: false, text: 'Teammate name cannot be empty after normalization' }
+  }
   if (team.members[workerName]) {
     return { ok: false, text: `Member ${workerName} already exists` }
   }
   const sessionFile = path.join(getWorkerSessionsDir(), `${team.name}-${workerName}.jsonl`)
   const cwd = assignment.cwd ?? leaderCwd
-  const discovered = discoverAgents(cwd)
+  const discovered = discoverAgents()
   const normalizedRole = normalizeSpawnRole(assignment.role, assignment.name)
   const roleAgent = discovered.find(a => a.name === normalizedRole)
+  if (!roleAgent) {
+    const available = discovered.map(agent => agent.name).sort().join(', ') || '(none)'
+    return { ok: false, text: `Unknown teammate role ${normalizedRole}. Available roles: ${available}` }
+  }
   const leader = team.members[TEAM_LEAD]
   deps.healMemberPaneBinding(leader)
   const { initialTask: initialWake, bootPrompt: deferredBootPrompt } = deps.classifySpawnTask(assignment.task)
@@ -109,23 +115,23 @@ function spawnOne(
     '- Update shared tasks as you make progress.',
     '- Be concise, practical, and action-oriented.',
     '- If asked to summarize findings, send the summary to team-lead using agentteam_send.',
-    roleAgent?.systemPrompt ? `\nRole prompt:\n${roleAgent.systemPrompt}` : '',
+    roleAgent.systemPrompt ? `\nRole prompt:\n${roleAgent.systemPrompt}` : '',
   ].filter(Boolean).join('\n')
 
   const launchCommandParts = ['pi', '--session', sessionFile]
   if (basePrompt) {
     launchCommandParts.push('--append-system-prompt', basePrompt)
   }
-  if (roleAgent?.model) {
+  if (roleAgent.model) {
     launchCommandParts.push('--model', roleAgent.model)
   }
-  if (roleAgent?.tools && roleAgent.tools.length > 0) {
+  if (roleAgent.tools && roleAgent.tools.length > 0) {
     const builtinCliTools = roleAgent.tools.filter(tool => BUILTIN_CLI_TOOLS.has(tool))
     if (builtinCliTools.length > 0) {
       launchCommandParts.push('--tools', builtinCliTools.join(','))
     }
   }
-  const pane = createTeammatePane({
+  const pane = await createTeammatePane({
     name: workerName,
     preferred: {
       target: leader?.windowTarget,
@@ -138,9 +144,9 @@ function spawnOne(
   upsertMember(team, {
     name: workerName,
     role: normalizedRole,
-    model: roleAgent?.model,
-    tools: roleAgent?.tools,
-    systemPrompt: roleAgent?.systemPrompt,
+    model: roleAgent.model,
+    tools: roleAgent.tools,
+    systemPrompt: roleAgent.systemPrompt,
     cwd,
     sessionFile,
     paneId: pane.paneId,
@@ -165,7 +171,7 @@ function spawnOne(
   team.members[workerName]!.paneId = binding.paneId
   team.members[workerName]!.windowTarget = binding.target
 
-  const ready = waitForPaneAppStart(binding.paneId, 20000)
+  const ready = await waitForPaneAppStart(binding.paneId, 20000)
   if (!ready) {
     updateMemberStatus(team, workerName, {
       status: 'error',
@@ -178,7 +184,10 @@ function spawnOne(
     }
   }
 
-  const started = Boolean(initialWake) && deps.wakeWorker(team, workerName, initialWake)
+  const wakeResult = initialWake
+    ? await deps.wakeWorker(team, workerName, initialWake)
+    : undefined
+  const started = Boolean(wakeResult?.ok)
   if (!started) {
     updateMemberStatus(team, workerName, {
       status: 'idle',
@@ -208,10 +217,21 @@ export function registerTeamTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
   pi.registerTool({
     name: 'agentteam_create',
     label: 'AgentTeam Create',
-    description: 'Create a shared agent team with all extension files isolated under ~/.pi/agent/extensions/agentteam.',
+    description: 'Create a shared agent team attached to the current leader session.',
+    promptSnippet: 'Create an agentteam when the user wants coordinated teammates; call this before spawning or messaging teammates.',
+    promptGuidelines: [
+      'Use agentteam_create only when the current session is not already attached to a team.',
+      'After agentteam_create, create shared tasks before delegating concrete work to teammates.',
+    ],
     parameters: TeamCreateParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const teamName = deps.sanitizeTeamName(params.team_name)
+      if (!teamName) {
+        return {
+          content: [{ type: 'text', text: 'Team name cannot be empty after normalization' }],
+          details: { denied: true },
+        }
+      }
       if (readTeamState(teamName)) {
         return {
           content: [{ type: 'text', text: `Team ${teamName} already exists` }],
@@ -257,6 +277,12 @@ export function registerTeamTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
     name: 'agentteam_spawn',
     label: 'AgentTeam Spawn',
     description: 'Create a teammate in a tmux pane for the current session-attached team. If task is omitted, the teammate is created idle and waits for later instructions.',
+    promptSnippet: 'Spawn visible pi teammates in tmux panes for roles such as researcher, planner, or implementer.',
+    promptGuidelines: [
+      'Use agentteam_spawn only after agentteam_create and only when existing teammates cannot handle the work.',
+      'Prefer spawning idle teammates or giving a short initial task; use agentteam_task plus agentteam_send for detailed assignments.',
+      'Only the team leader may use agentteam_spawn.',
+    ],
     parameters: TeamSpawnParams,
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       const team = deps.ensureTeamForSession(ctx)
@@ -273,7 +299,7 @@ export function registerTeamTools(pi: ExtensionAPI, deps: ToolHandlerDeps): void
           details: {},
         }
       }
-      const result = spawnOne(deps, team, params, ctx.cwd)
+      const result = await spawnOne(deps, team, params, ctx.cwd)
       deps.invalidateStatus(ctx)
       return {
         content: [{ type: 'text', text: result.text }],

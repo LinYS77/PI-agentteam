@@ -2,16 +2,12 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parseFrontmatter } from '@mariozechner/pi-coding-agent'
 
-export type AgentSource = 'builtin' | 'user' | 'project'
-
 export type AgentDefinition = {
   name: string
   description: string
   tools?: string[]
   model?: string
   systemPrompt: string
-  source: AgentSource
-  filePath: string
 }
 
 type AgentTeamConfig = {
@@ -23,17 +19,6 @@ function isDirectory(p: string): boolean {
     return fs.statSync(p).isDirectory()
   } catch {
     return false
-  }
-}
-
-function findNearestProjectAgentsDir(cwd: string): string | null {
-  let currentDir = cwd
-  for (;;) {
-    const candidate = path.join(currentDir, '.pi', 'agents')
-    if (isDirectory(candidate)) return candidate
-    const parent = path.dirname(currentDir)
-    if (parent === currentDir) return null
-    currentDir = parent
   }
 }
 
@@ -69,10 +54,7 @@ function applyModelOverrides(
   })
 }
 
-function loadAgentsFromDir(
-  dir: string,
-  source: AgentSource,
-): AgentDefinition[] {
+function loadAgentsFromDir(dir: string): AgentDefinition[] {
   if (!isDirectory(dir)) return []
   const out: AgentDefinition[] = []
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -97,30 +79,14 @@ function loadAgentsFromDir(
       tools: tools && tools.length > 0 ? tools : undefined,
       model: undefined,
       systemPrompt: body,
-      source,
-      filePath,
     })
   }
   return out
 }
 
-export function discoverAgents(cwd: string): AgentDefinition[] {
+export function discoverAgents(): AgentDefinition[] {
   const builtinDir = path.join(path.dirname(__filename), 'agents')
-  const userDir = path.join(process.env.HOME ?? '', '.pi', 'agent', 'agents')
-  const projectDir = findNearestProjectAgentsDir(cwd)
-  const map = new Map<string, AgentDefinition>()
   const config = readAgentTeamConfig()
-
-  for (const agent of applyModelOverrides(loadAgentsFromDir(builtinDir, 'builtin'), config)) {
-    map.set(agent.name, agent)
-  }
-  for (const agent of applyModelOverrides(loadAgentsFromDir(userDir, 'user'), config)) {
-    map.set(agent.name, agent)
-  }
-  if (projectDir) {
-    for (const agent of applyModelOverrides(loadAgentsFromDir(projectDir, 'project'), config)) {
-      map.set(agent.name, agent)
-    }
-  }
-  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+  return applyModelOverrides(loadAgentsFromDir(builtinDir), config)
+    .sort((a, b) => a.name.localeCompare(b.name))
 }

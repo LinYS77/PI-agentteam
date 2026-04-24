@@ -74,7 +74,7 @@ export function computeLeaderDigestKey(
   return `${team.name}|blocked:${snapshot.blockedCount}|unread:${snapshot.unreadCount}|latest:${snapshot.latestUnreadMessageId}`
 }
 
-export function computeBlockedDeltaSummary(team: TeamState): {
+function computeBlockedDeltaSummary(team: TeamState): {
   blockedCount: number
   blockedFingerprints: string[]
   summary: string
