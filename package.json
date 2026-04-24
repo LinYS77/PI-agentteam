@@ -17,7 +17,7 @@
   "author": "linys77",
   "repository": {
     "type": "git",
-    "url": "https://github.com/LinYS77/PI-agentteam.git"
+    "url": "git+https://github.com/LinYS77/PI-agentteam.git"
   },
   "homepage": "https://github.com/LinYS77/PI-agentteam#readme",
   "bugs": {
