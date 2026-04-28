@@ -118,5 +118,64 @@ module.exports = {
     assert.equal(contextService.shouldSyncMailboxOnInput({ source: 'interactive', text: '/team' }), true)
     assert.equal(contextService.shouldSyncMailboxOnInput({ source: 'interactive', text: '/help' }), false)
     assert.equal(contextService.shouldSyncMailboxOnInput({ source: 'api', text: 'agentteam' }), false)
+
+    const mailboxSessionFile = '/tmp/mailbox-projection-leader.jsonl'
+    const mailboxCtx = env.helpers.createCtx('/tmp/mailbox-projection-project', mailboxSessionFile, [])
+    const mailboxTeam = env.modules.state.createInitialTeamState({
+      teamName: 'mailbox-projection-suite',
+      leaderSessionFile: mailboxSessionFile,
+      leaderCwd: '/tmp/mailbox-projection-project',
+      description: 'projection test',
+    })
+    env.modules.state.writeTeamState(mailboxTeam)
+    env.modules.state.writeSessionContext(mailboxSessionFile, {
+      teamName: mailboxTeam.name,
+      memberName: 'team-lead',
+    })
+
+    const mailboxRuntime = env.modules.runtimeService.createRuntimeService(env.pi)
+    const messagesBeforeProjection = env.pi.__messages.length
+    const firstUnread = env.modules.state.pushMailboxMessage(mailboxTeam.name, 'team-lead', {
+      from: 'planner',
+      to: 'team-lead',
+      text: 'first unread should project once',
+      type: 'question',
+    })
+
+    mailboxRuntime.runMailboxSync(mailboxCtx)
+    let projected = env.pi.__messages.slice(messagesBeforeProjection).filter(message => message.customType === 'agentteam-mailbox')
+    assert.deepEqual(projected.map(message => message.details.id), [firstUnread.id], 'first sync should project first unread')
+
+    mailboxRuntime.runMailboxSync(mailboxCtx)
+    projected = env.pi.__messages.slice(messagesBeforeProjection).filter(message => message.customType === 'agentteam-mailbox')
+    assert.deepEqual(projected.map(message => message.details.id), [firstUnread.id], 'repeated automatic sync should not reproject old unread')
+
+    const secondUnread = env.modules.state.pushMailboxMessage(mailboxTeam.name, 'team-lead', {
+      from: 'researcher',
+      to: 'team-lead',
+      text: 'second unread should project without repeating first',
+      type: 'completion_report',
+    })
+    mailboxRuntime.runMailboxSync(mailboxCtx)
+    projected = env.pi.__messages.slice(messagesBeforeProjection).filter(message => message.customType === 'agentteam-mailbox')
+    assert.deepEqual(
+      projected.map(message => message.details.id),
+      [firstUnread.id, secondUnread.id],
+      'new unread should project without repeating prior unread',
+    )
+
+    let storedMailbox = env.modules.state.readMailbox(mailboxTeam.name, 'team-lead')
+    assert.ok(storedMailbox.every(message => !message.readAt), 'projection should not mark mailbox messages read')
+
+    mailboxRuntime.resetMailboxSyncKey()
+    mailboxRuntime.runMailboxSync(mailboxCtx)
+    projected = env.pi.__messages.slice(messagesBeforeProjection).filter(message => message.customType === 'agentteam-mailbox')
+    assert.deepEqual(
+      projected.map(message => message.details.id),
+      [firstUnread.id, secondUnread.id, firstUnread.id, secondUnread.id],
+      'manual reset should allow explicit re-projection of unread messages',
+    )
+    storedMailbox = env.modules.state.readMailbox(mailboxTeam.name, 'team-lead')
+    assert.ok(storedMailbox.every(message => !message.readAt), 'manual re-projection should still not mark mailbox messages read')
   },
 }

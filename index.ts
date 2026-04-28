@@ -50,7 +50,6 @@ export default function agentTeamExtension(pi: ExtensionAPI): void {
 
   registerAgentHooks(pi, {
     cancelPendingNudge,
-    resetMailboxSyncKey: runtime.resetMailboxSyncKey,
     runMailboxSync: runtime.runMailboxSync,
     invalidateStatus: runtime.invalidateStatus,
   })

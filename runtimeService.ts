@@ -23,7 +23,7 @@ type RuntimeService = {
 }
 
 export function createRuntimeService(pi: ExtensionAPI): RuntimeService {
-  let lastMailboxKey = ''
+  const projectedMailboxIds = new Set<string>()
   let lastStatusKey = ''
 
   const hookState: RuntimeHookState = {
@@ -52,34 +52,32 @@ export function createRuntimeService(pi: ExtensionAPI): RuntimeService {
 
   function runMailboxSync(ctx: ExtensionContext): void {
     const unread = deliverLeaderMailbox(ctx)
-    const syncKey = unread.map(item => item.id).join(',')
-    if (syncKey.length === 0 || syncKey === lastMailboxKey) return
-    lastMailboxKey = syncKey
-    if (unread.length > 0) {
-      for (const item of unread) {
-        try {
-          pi.sendMessage(
-            {
-              customType: 'agentteam-mailbox',
-              content: item.text,
-              display: true,
-              details: item,
-            },
-            {
-              // Always queue safely if agent is currently streaming.
-              deliverAs: 'followUp',
-            },
-          )
-        } catch {
-          // Best-effort transcript projection only.
-        }
+    const pendingProjection = unread.filter(item => !projectedMailboxIds.has(`${item.teamName}:${item.id}`))
+    if (pendingProjection.length === 0) return
+    for (const item of pendingProjection) {
+      try {
+        pi.sendMessage(
+          {
+            customType: 'agentteam-mailbox',
+            content: item.text,
+            display: true,
+            details: item,
+          },
+          {
+            // Always queue safely if agent is currently streaming.
+            deliverAs: 'followUp',
+          },
+        )
+      } catch {
+        // Best-effort transcript projection only.
       }
-      ctx.ui.notify(`agentteam: ${unread.length} new teammate message(s)`, 'info')
+      projectedMailboxIds.add(`${item.teamName}:${item.id}`)
     }
+    ctx.ui.notify(`agentteam: ${pendingProjection.length} new teammate message(s)`, 'info')
   }
 
   function resetMailboxSyncKey(): void {
-    lastMailboxKey = ''
+    projectedMailboxIds.clear()
   }
 
   return {

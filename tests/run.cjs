@@ -338,6 +338,7 @@ function loadModules() {
     protocol: req('protocol.js'),
     orchestration: req('orchestration.js'),
     runtime: req('runtime.js'),
+    runtimeService: req('runtimeService.js'),
     viewModel: req('teamPanel/viewModel.js'),
     layout: req('teamPanel/layout.js'),
   }
