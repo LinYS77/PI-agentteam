@@ -17,6 +17,7 @@ type RuntimeService = {
   hookState: RuntimeHookState
   updateDigestState: (patch: Partial<RuntimeHookState>) => void
   attachCurrentSessionIfNeeded: typeof attachCurrentSessionIfNeeded
+  refreshStatus: (ctx: ExtensionContext) => void
   invalidateStatus: (ctx: ExtensionContext) => void
   runMailboxSync: (ctx: ExtensionContext) => void
   resetMailboxSyncKey: () => void
@@ -37,7 +38,7 @@ export function createRuntimeService(pi: ExtensionAPI): RuntimeService {
     Object.assign(hookState, patch)
   }
 
-  function runStatusRefresh(ctx: ExtensionContext): void {
+  function refreshStatus(ctx: ExtensionContext): void {
     const attached = attachCurrentSessionIfNeeded(ctx)
     const statusKey = buildSessionStatusKey(ctx, attached)
     if (statusKey === lastStatusKey) return
@@ -47,7 +48,7 @@ export function createRuntimeService(pi: ExtensionAPI): RuntimeService {
 
   function invalidateStatus(ctx: ExtensionContext): void {
     lastStatusKey = ''
-    runStatusRefresh(ctx)
+    refreshStatus(ctx)
   }
 
   function runMailboxSync(ctx: ExtensionContext): void {
@@ -84,6 +85,7 @@ export function createRuntimeService(pi: ExtensionAPI): RuntimeService {
     hookState,
     updateDigestState,
     attachCurrentSessionIfNeeded,
+    refreshStatus,
     invalidateStatus,
     runMailboxSync,
     resetMailboxSyncKey,

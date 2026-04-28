@@ -7,7 +7,7 @@ import {
 type AgentHookDeps = {
   cancelPendingNudge: (memberName: string) => void
   runMailboxSync: (ctx: ExtensionContext) => void
-  invalidateStatus: (ctx: ExtensionContext) => void
+  refreshStatus: (ctx: ExtensionContext) => void
 }
 
 export function registerAgentHooks(pi: ExtensionAPI, deps: AgentHookDeps): void {
@@ -16,12 +16,12 @@ export function registerAgentHooks(pi: ExtensionAPI, deps: AgentHookDeps): void 
     if (!memberName) return
 
     deps.cancelPendingNudge(memberName)
-    deps.invalidateStatus(ctx)
+    deps.refreshStatus(ctx)
   })
 
   pi.on('agent_end', async (_event, ctx) => {
     markWorkerAgentIdleAfterTurn(ctx)
     deps.runMailboxSync(ctx)
-    deps.invalidateStatus(ctx)
+    deps.refreshStatus(ctx)
   })
 }

@@ -24,7 +24,6 @@ export function injectLeaderContextAndUpdateDigest(
   deps: {
     state: HookDigestState
     updateDigestState?: (patch: HookDigestPatch) => void
-    invalidateStatus: (ctx: ExtensionContext) => void
   },
   ctx: ExtensionContext,
 ): boolean {
@@ -43,12 +42,6 @@ export function injectLeaderContextAndUpdateDigest(
     },
   })
 
-  const digestStateChanged =
-    injected.digestKey !== deps.state.lastLeaderDigestKey ||
-    injected.digestAt !== deps.state.lastLeaderDigestAt ||
-    injected.blockedCount !== deps.state.lastBlockedCountForDigest ||
-    injected.blockedFingerprints.join('|') !== deps.state.lastBlockedFingerprintsForDigest.join('|')
-
   updateHookDigestState(deps, {
     lastLeaderDigestKey: injected.digestKey,
     lastLeaderDigestAt: injected.digestAt,
@@ -56,9 +49,6 @@ export function injectLeaderContextAndUpdateDigest(
     lastBlockedFingerprintsForDigest: injected.blockedFingerprints,
   })
 
-  if (injected.injected || digestStateChanged) {
-    deps.invalidateStatus(ctx)
-  }
   return injected.injected
 }
 
@@ -67,7 +57,7 @@ export function syncLeaderMailboxForInputIfNeeded(
   ctx: ExtensionContext,
   deps: {
     runMailboxSync: (ctx: ExtensionContext) => void
-    invalidateStatus: (ctx: ExtensionContext) => void
+    refreshStatus: (ctx: ExtensionContext) => void
   },
 ): void {
   if (!shouldSyncMailboxOnInput(event)) return
@@ -75,5 +65,5 @@ export function syncLeaderMailboxForInputIfNeeded(
   const memberName = getCurrentMemberName(ctx)
   if (!teamName || memberName !== TEAM_LEAD) return
   deps.runMailboxSync(ctx)
-  deps.invalidateStatus(ctx)
+  deps.refreshStatus(ctx)
 }

@@ -8,7 +8,7 @@ import {
 export type ContextHookDeps = {
   state: HookDigestState
   updateDigestState?: (patch: HookDigestPatch) => void
-  invalidateStatus: (ctx: ExtensionContext) => void
+  refreshStatus: (ctx: ExtensionContext) => void
   runMailboxSync: (ctx: ExtensionContext) => void
 }
 
@@ -23,12 +23,12 @@ export function registerContextHooks(pi: ExtensionAPI, deps: ContextHookDeps): v
 
   pi.on('tool_result', async (_event, ctx) => {
     deps.runMailboxSync(ctx)
-    deps.invalidateStatus(ctx)
+    deps.refreshStatus(ctx)
   })
 
   pi.on('message_end', async (_event, ctx) => {
     deps.runMailboxSync(ctx)
-    deps.invalidateStatus(ctx)
+    deps.refreshStatus(ctx)
   })
 
   pi.on('input', async (event, ctx) => {

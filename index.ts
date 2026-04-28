@@ -44,14 +44,14 @@ export default function agentTeamExtension(pi: ExtensionAPI): void {
   registerContextHooks(pi, {
     state: runtime.hookState,
     updateDigestState: runtime.updateDigestState,
-    invalidateStatus: runtime.invalidateStatus,
+    refreshStatus: runtime.refreshStatus,
     runMailboxSync: runtime.runMailboxSync,
   })
 
   registerAgentHooks(pi, {
     cancelPendingNudge,
     runMailboxSync: runtime.runMailboxSync,
-    invalidateStatus: runtime.invalidateStatus,
+    refreshStatus: runtime.refreshStatus,
   })
 
   registerAgentTeamCommands(pi, {

@@ -127,6 +127,8 @@ module.exports = {
       leaderCwd: '/tmp/mailbox-projection-project',
       description: 'projection test',
     })
+    mailboxTeam.members['team-lead'].paneId = '%leader'
+    mailboxTeam.members['team-lead'].windowTarget = 'test:@1'
     env.modules.state.writeTeamState(mailboxTeam)
     env.modules.state.writeSessionContext(mailboxSessionFile, {
       teamName: mailboxTeam.name,
@@ -177,5 +179,23 @@ module.exports = {
     )
     storedMailbox = env.modules.state.readMailbox(mailboxTeam.name, 'team-lead')
     assert.ok(storedMailbox.every(message => !message.readAt), 'manual re-projection should still not mark mailbox messages read')
+
+    const statusRuntime = env.modules.runtimeService.createRuntimeService(env.pi)
+    let statusCalls = 0
+    let widgetCalls = 0
+    mailboxCtx.ui.setStatus = () => { statusCalls += 1 }
+    mailboxCtx.ui.setWidget = () => { widgetCalls += 1 }
+
+    statusRuntime.refreshStatus(mailboxCtx)
+    assert.equal(statusCalls, 1, 'first non-forcing refresh should update status UI')
+    assert.equal(widgetCalls, 1, 'first non-forcing refresh should update widget UI')
+
+    statusRuntime.refreshStatus(mailboxCtx)
+    assert.equal(statusCalls, 1, 'repeated non-forcing refresh should be skipped when status key is unchanged')
+    assert.equal(widgetCalls, 1, 'repeated non-forcing refresh should not update widget UI when status key is unchanged')
+
+    statusRuntime.invalidateStatus(mailboxCtx)
+    assert.equal(statusCalls, 2, 'invalidateStatus should still force one status refresh')
+    assert.equal(widgetCalls, 2, 'invalidateStatus should still force one widget refresh')
   },
 }
