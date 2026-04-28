@@ -43,6 +43,7 @@ export function removeSelectedMember(
 
   const paneId = member.paneId
   const sessionFile = member.sessionFile
+  const currentPane = currentPaneId()
   updateTeamState(team.name, latest => {
     removeMember(latest, memberName)
   })
@@ -50,7 +51,9 @@ export function removeSelectedMember(
   clearSessionFileAndBinding(sessionFile)
   removeMailbox(team.name, memberName)
 
-  if (paneId && paneExists(paneId)) {
+  if (paneId === currentPane) {
+    clearPaneLabelSync(paneId)
+  } else if (paneId && paneExists(paneId)) {
     killPane(paneId)
   }
 
@@ -126,11 +129,8 @@ export function deleteSelectedTeam(
 
   deps.deleteTeamRuntime(team, {
     includeLeaderPane: leaderPaneId !== currentPane,
-    clearLeaderLabel: leaderPaneId !== currentPane,
+    preservePaneId: currentPane,
   })
-  if (leaderPaneId === currentPane && currentPane) {
-    clearPaneLabelSync(currentPane)
-  }
 
   if (currentTeamName === team.name) {
     clearSessionContext(getSessionFile(ctx))
@@ -164,7 +164,7 @@ export function cleanupAllAgentTeamData(
     const leaderPaneId = team.members[TEAM_LEAD]?.paneId
     deps.deleteTeamRuntime(team, {
       includeLeaderPane: leaderPaneId !== currentPane,
-      clearLeaderLabel: leaderPaneId !== currentPane,
+      preservePaneId: currentPane,
     })
     deletedTeams += 1
   }

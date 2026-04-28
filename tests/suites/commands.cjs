@@ -52,6 +52,34 @@ module.exports = {
     const teamAfterRemove = modules.state.readTeamState('full-suite-team')
     assert.ok(!teamAfterRemove.members['plan-one'], 'plan-one should be removed from /team action')
 
+    const removeCurrentPaneTeam = modules.state.createInitialTeamState({
+      teamName: 'remove-current-pane-suite',
+      leaderSessionFile: '/tmp/remove-current-leader.jsonl',
+      leaderCwd: '/tmp',
+    })
+    modules.state.upsertMember(removeCurrentPaneTeam, {
+      name: 'stale-current-worker',
+      role: 'researcher',
+      cwd: '/tmp',
+      sessionFile: '/tmp/stale-current-worker.jsonl',
+      status: 'error',
+      paneId: '%leader',
+      windowTarget: 'test:@1',
+    })
+    modules.state.writeTeamState(removeCurrentPaneTeam)
+    oneShotPanel(leaderCtx, {
+      type: 'remove-member',
+      teamName: 'remove-current-pane-suite',
+      memberName: 'stale-current-worker',
+    })
+    await command('team').handler('', leaderCtx)
+    leaderCtx.ui.custom = originalCustom
+    const afterRemoveCurrentPane = modules.state.readTeamState('remove-current-pane-suite')
+    assert.ok(!afterRemoveCurrentPane.members['stale-current-worker'], 'current-pane stale worker should be removed from state')
+    assert.equal(patches.livePanes.has('%leader'), true, 'remove member should never kill current pane')
+    assert.ok(patches.clearedPaneLabels.includes('%leader'), 'remove member should clear current pane label when selected member points at current pane')
+    modules.state.deleteTeamState('remove-current-pane-suite')
+
     patches.livePanes.add('%old-leader')
     modules.state.updateTeamState('full-suite-team', latest => {
       latest.members['team-lead'].paneId = '%old-leader'
@@ -93,6 +121,31 @@ module.exports = {
     assert.equal(patches.livePanes.has('%cleanup-old-leader'), false, 'cleanup should kill non-current leader pane')
     assert.equal(patches.livePanes.has('%leader'), true, 'cleanup should keep current pane alive')
     assert.ok(patches.clearedPaneLabels.includes('%leader'), 'cleanup should clear current pane label')
+
+    const deleteCurrentPaneMemberTeam = modules.state.createInitialTeamState({
+      teamName: 'delete-current-pane-member-suite',
+      leaderSessionFile: '/tmp/delete-current-pane-member-leader.jsonl',
+      leaderCwd: '/tmp',
+    })
+    modules.state.upsertMember(deleteCurrentPaneMemberTeam, {
+      name: 'stale-current-worker',
+      role: 'researcher',
+      cwd: '/tmp',
+      sessionFile: '/tmp/delete-current-pane-member-worker.jsonl',
+      status: 'error',
+      paneId: '%leader',
+      windowTarget: 'test:@1',
+    })
+    modules.state.writeTeamState(deleteCurrentPaneMemberTeam)
+    oneShotPanel(leaderCtx, {
+      type: 'delete-team',
+      teamName: 'delete-current-pane-member-suite',
+    })
+    await command('team').handler('', leaderCtx)
+    leaderCtx.ui.custom = originalCustom
+    assert.equal(modules.state.readTeamState('delete-current-pane-member-suite'), null)
+    assert.equal(patches.livePanes.has('%leader'), true, 'delete team should never kill current pane even if a stale worker points at it')
+    assert.ok(patches.clearedPaneLabels.includes('%leader'), 'delete team should clear current pane label when preserving it')
 
     const recoverTeam = modules.state.createInitialTeamState({
       teamName: 'recover-suite',

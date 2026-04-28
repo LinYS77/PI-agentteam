@@ -77,20 +77,23 @@ export function reconcileTeamPanes(team: TeamState, options?: { force?: boolean 
   return changed
 }
 
-function killTeamPanes(team: TeamState, options?: { includeLeader?: boolean }): void {
+function killTeamPanes(team: TeamState, options?: { includeLeader?: boolean; preservePaneId?: string }): void {
   for (const member of Object.values(team.members)) {
     if (!options?.includeLeader && member.name === TEAM_LEAD) continue
     if (!member.paneId) continue
+    if (member.paneId === options?.preservePaneId) continue
     if (!paneExists(member.paneId)) continue
     killPane(member.paneId)
   }
 }
 
-export function clearAndKillTeamPanes(team: TeamState, options?: { includeLeaderPane?: boolean; clearLeaderLabel?: boolean }): void {
+export function clearAndKillTeamPanes(team: TeamState, options?: { includeLeaderPane?: boolean; preservePaneId?: string }): void {
   void clearPaneLabelsForTeam(team)
-  if (options?.clearLeaderLabel === false) {
-    const leaderPaneId = team.members[TEAM_LEAD]?.paneId
-    if (leaderPaneId) void clearPaneLabelSync(leaderPaneId)
+  if (options?.preservePaneId) {
+    clearPaneLabelSync(options.preservePaneId)
   }
-  killTeamPanes(team, { includeLeader: options?.includeLeaderPane })
+  killTeamPanes(team, {
+    includeLeader: options?.includeLeaderPane,
+    preservePaneId: options?.preservePaneId,
+  })
 }

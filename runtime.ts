@@ -204,7 +204,7 @@ export function buildSessionStatusKey(
   return `${sessionFile}|${attached.source}|${teamName}|${memberName}|rev:${revision}|members:${memberCount}|tasks:${taskCount}|actor:${actor.status}:${actor.updatedAt}:${actor.lastWakeReason ?? ''}:${actor.lastError ?? ''}`
 }
 
-export function deleteTeamRuntime(team: TeamState, options?: { includeLeaderPane?: boolean; clearLeaderLabel?: boolean }): void {
+export function deleteTeamRuntime(team: TeamState, options?: { includeLeaderPane?: boolean; preservePaneId?: string }): void {
   clearAndKillTeamPanes(team, options)
   deleteTeamState(team.name)
   invalidateMailboxEnsureCache(team.name)
