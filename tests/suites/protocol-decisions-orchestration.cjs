@@ -69,8 +69,46 @@ module.exports = {
 
     const digestKey = modules.orchestration.computeLeaderDigestKey(modules.state.readTeamState('decision-suite'))
     assert.ok(digestKey.includes('blocked:1'))
+    assert.ok(digestKey.includes(task.id), 'digest key should track blocked task identity')
     assert.ok(digestKey.includes('unread:1'))
     assert.ok(digestKey.includes(`latest:${blockedMessage.id}`))
+
+    const repeatedActionableDigest = modules.orchestration.maybeInjectLeaderOrchestrationContext(
+      { messages: [{ role: 'user', content: 'please continue' }] },
+      {
+        team,
+        memberName: 'team-lead',
+        state: {
+          lastDigestKey: injected.digestKey,
+          lastDigestAt: injected.digestAt - 3000,
+          lastBlockedCount: injected.blockedCount,
+          lastBlockedFingerprints: injected.blockedFingerprints,
+        },
+      },
+    )
+    assert.equal(
+      repeatedActionableDigest.injected,
+      undefined,
+      'same actionable digest should not repeat on a short interval',
+    )
+
+    const reminderActionableDigest = modules.orchestration.maybeInjectLeaderOrchestrationContext(
+      { messages: [{ role: 'user', content: 'please continue' }] },
+      {
+        team,
+        memberName: 'team-lead',
+        state: {
+          lastDigestKey: injected.digestKey,
+          lastDigestAt: injected.digestAt - (11 * 60 * 1000),
+          lastBlockedCount: injected.blockedCount,
+          lastBlockedFingerprints: injected.blockedFingerprints,
+        },
+      },
+    )
+    assert.ok(
+      reminderActionableDigest.injected,
+      'same actionable digest may repeat only as a low-frequency reminder',
+    )
 
     const quietTeam = modules.state.createInitialTeamState({
       teamName: 'quiet-mode-suite',
@@ -108,12 +146,11 @@ module.exports = {
         },
       },
     )
-    assert.ok(quietInjected.injected, 'digest should inject on first leader turn')
-    const quietDigestText = quietInjected.injected.messages
-      .map(m => (typeof m.content === 'string' ? m.content : ''))
-      .join('\n')
-    assert.ok(quietDigestText.includes('blocked task count: 0'))
-    assert.ok(quietDigestText.includes('unread leader mailbox count: 0'))
+    assert.equal(
+      quietInjected.injected,
+      undefined,
+      'quiet team should not inject a 0/0 coordination digest',
+    )
 
     const quietSecond = modules.orchestration.maybeInjectLeaderOrchestrationContext(
       { messages: [{ role: 'user', content: 'continue' }] },
@@ -147,9 +184,10 @@ module.exports = {
         },
       },
     )
-    assert.ok(
+    assert.equal(
       quietAfterInterval.injected,
-      'digest should allow periodic health-check injection after long interval',
+      undefined,
+      'quiet team should stay silent even after the reminder interval',
     )
 
     const unreadScopeTeam = modules.state.createInitialTeamState({

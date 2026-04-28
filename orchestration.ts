@@ -23,6 +23,7 @@ function unreadLeaderMailbox(team: TeamState): MailboxMessage[] {
 
 export type LeaderCoordinationSnapshot = {
   blockedCount: number
+  blockedTaskIds: string[]
   unreadCount: number
   latestUnreadMessageId: string
 }
@@ -32,6 +33,7 @@ export function buildLeaderCoordinationSnapshot(team: TeamState): LeaderCoordina
   const unread = unreadLeaderMailbox(team)
   return {
     blockedCount: blocked.length,
+    blockedTaskIds: blocked.map(task => task.id),
     unreadCount: unread.length,
     latestUnreadMessageId: unread[0]?.id ?? '',
   }
@@ -71,7 +73,7 @@ export function computeLeaderDigestKey(
   coordination?: LeaderCoordinationSnapshot,
 ): string {
   const snapshot = coordination ?? buildLeaderCoordinationSnapshot(team)
-  return `${team.name}|blocked:${snapshot.blockedCount}|unread:${snapshot.unreadCount}|latest:${snapshot.latestUnreadMessageId}`
+  return `${team.name}|blocked:${snapshot.blockedCount}|blockedIds:${snapshot.blockedTaskIds.join(',')}|unread:${snapshot.unreadCount}|latest:${snapshot.latestUnreadMessageId}`
 }
 
 function computeBlockedDeltaSummary(team: TeamState): {
@@ -124,10 +126,19 @@ export function maybeInjectLeaderOrchestrationContext(
   const now = Date.now()
 
   const hasActionableWork = coordination.blockedCount > 0 || coordination.unreadCount > 0
-  const MIN_DIGEST_INTERVAL_MS = hasActionableWork ? 2000 : 15 * 60 * 1000
+  if (!hasActionableWork) {
+    return {
+      digestKey,
+      digestAt: state.lastDigestAt,
+      blockedCount: blocked.blockedCount,
+      blockedFingerprints: blocked.blockedFingerprints,
+    }
+  }
+
+  const ACTIONABLE_REMINDER_INTERVAL_MS = 10 * 60 * 1000
   const shouldInject =
     !alreadyPresent &&
-    (digestKey !== state.lastDigestKey || now - state.lastDigestAt >= MIN_DIGEST_INTERVAL_MS)
+    (digestKey !== state.lastDigestKey || now - state.lastDigestAt >= ACTIONABLE_REMINDER_INTERVAL_MS)
 
   if (!shouldInject) {
     return {
