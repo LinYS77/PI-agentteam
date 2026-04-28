@@ -43,7 +43,8 @@ module.exports = {
       basePrompt: systemPrompt,
       roleAgent,
     })
-    assert.ok(launch.startsWith("'pi' '--session'"), launch)
+    assert.ok(launch.startsWith('PI_AGENTTEAM_HOME='), launch)
+    assert.ok(launch.includes("'pi' '--session'"), launch)
     assert.ok(launch.includes("'--append-system-prompt'"), launch)
     assert.ok(launch.includes("'--model' 'model with space'"), launch)
     assert.ok(launch.includes("'--tools' 'read,bash,agentteam_task'"), launch)

@@ -31,6 +31,12 @@ export function buildWorkerLaunchCommand(input: {
   basePrompt: string
   roleAgent: AgentDefinition
 }): string {
+  const envParts: string[] = []
+  const agentTeamHome = process.env.PI_AGENTTEAM_HOME?.trim()
+  if (agentTeamHome) {
+    envParts.push(`PI_AGENTTEAM_HOME=${shellEscapeArg(agentTeamHome)}`)
+  }
+
   const launchCommandParts = ['pi', '--session', input.sessionFile]
   if (input.basePrompt) {
     launchCommandParts.push('--append-system-prompt', input.basePrompt)
@@ -44,5 +50,6 @@ export function buildWorkerLaunchCommand(input: {
       launchCommandParts.push('--tools', cliTools.join(','))
     }
   }
-  return launchCommandParts.map(part => shellEscapeArg(String(part))).join(' ')
+  const command = launchCommandParts.map(part => shellEscapeArg(String(part))).join(' ')
+  return [...envParts, command].join(' ')
 }
