@@ -139,12 +139,13 @@ export function attachCurrentSessionIfNeeded(ctx: ExtensionContext): AttachedSes
 export function refreshForSession(
   ctx: ExtensionContext,
   attached?: AttachedSessionContext,
+  options?: { forceReconcile?: boolean },
 ): void {
   const resolved = attached ?? attachCurrentSessionIfNeeded(ctx)
   const team = resolved.context.teamName ? readTeamState(resolved.context.teamName) : null
   if (team) {
     ensureTeamStorageReady(team)
-    const changed = reconcileTeamPanes(team, { force: true })
+    const changed = reconcileTeamPanes(team, options?.forceReconcile ? { force: true } : undefined)
     const currentPane = captureCurrentPaneBinding()
     let leaderChanged = false
     if (
@@ -232,7 +233,7 @@ export function deliverLeaderMailbox(
   if (!teamName || memberName !== TEAM_LEAD) return []
   const team = readTeamState(teamName)
   if (team) ensureTeamStorageReady(team)
-  if (team && reconcileTeamPanes(team, { force: true })) {
+  if (team && reconcileTeamPanes(team)) {
     updateTeamState(team.name, () => team)
   }
   const unread = peekUnreadMailbox(teamName, TEAM_LEAD)

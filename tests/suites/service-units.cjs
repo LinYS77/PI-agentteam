@@ -197,5 +197,45 @@ module.exports = {
     statusRuntime.invalidateStatus(mailboxCtx)
     assert.equal(statusCalls, 2, 'invalidateStatus should still force one status refresh')
     assert.equal(widgetCalls, 2, 'invalidateStatus should still force one widget refresh')
+
+    const originalResolvePaneBinding = env.modules.tmux.resolvePaneBinding
+    let resolveCalls = 0
+    try {
+      env.modules.tmux.resolvePaneBinding = paneId => {
+        resolveCalls += 1
+        return { paneId, target: 'test:@1' }
+      }
+      const reconcileTeam = env.modules.state.createInitialTeamState({
+        teamName: 'reconcile-cache-suite',
+        leaderSessionFile: '/tmp/reconcile-cache-leader.jsonl',
+        leaderCwd: '/tmp/reconcile-cache-project',
+        description: 'reconcile cache test',
+      })
+      env.modules.state.upsertMember(reconcileTeam, {
+        name: 'impl-cache',
+        role: 'implementer',
+        cwd: '/tmp/reconcile-cache-project',
+        sessionFile: '/tmp/reconcile-cache-impl.jsonl',
+        paneId: '%cache-worker',
+        windowTarget: 'test:@1',
+        status: 'idle',
+      })
+      env.modules.runtime.invalidatePaneReconcileCache(reconcileTeam.name)
+
+      assert.equal(env.modules.runtime.reconcileTeamPanes(reconcileTeam), false)
+      assert.equal(resolveCalls, 1, 'first reconcile should resolve member pane')
+
+      assert.equal(env.modules.runtime.reconcileTeamPanes(reconcileTeam), false)
+      assert.equal(resolveCalls, 1, 'second reconcile within same revision/TTL should use cache')
+
+      reconcileTeam.revision = (reconcileTeam.revision ?? 0) + 1
+      assert.equal(env.modules.runtime.reconcileTeamPanes(reconcileTeam), false)
+      assert.equal(resolveCalls, 2, 'revision change should allow reconcile again')
+
+      assert.equal(env.modules.runtime.reconcileTeamPanes(reconcileTeam, { force: true }), false)
+      assert.equal(resolveCalls, 3, 'force reconcile should bypass cache')
+    } finally {
+      env.modules.tmux.resolvePaneBinding = originalResolvePaneBinding
+    }
   },
 }

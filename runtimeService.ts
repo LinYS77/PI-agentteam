@@ -17,7 +17,7 @@ type RuntimeService = {
   hookState: RuntimeHookState
   updateDigestState: (patch: Partial<RuntimeHookState>) => void
   attachCurrentSessionIfNeeded: typeof attachCurrentSessionIfNeeded
-  refreshStatus: (ctx: ExtensionContext) => void
+  refreshStatus: (ctx: ExtensionContext, options?: { forceReconcile?: boolean }) => void
   invalidateStatus: (ctx: ExtensionContext) => void
   runMailboxSync: (ctx: ExtensionContext) => void
   resetMailboxSyncKey: () => void
@@ -38,17 +38,17 @@ export function createRuntimeService(pi: ExtensionAPI): RuntimeService {
     Object.assign(hookState, patch)
   }
 
-  function refreshStatus(ctx: ExtensionContext): void {
+  function refreshStatus(ctx: ExtensionContext, options?: { forceReconcile?: boolean }): void {
     const attached = attachCurrentSessionIfNeeded(ctx)
     const statusKey = buildSessionStatusKey(ctx, attached)
-    if (statusKey === lastStatusKey) return
+    if (statusKey === lastStatusKey && !options?.forceReconcile) return
     lastStatusKey = statusKey
-    refreshForSession(ctx, attached)
+    refreshForSession(ctx, attached, options)
   }
 
   function invalidateStatus(ctx: ExtensionContext): void {
     lastStatusKey = ''
-    refreshStatus(ctx)
+    refreshStatus(ctx, { forceReconcile: true })
   }
 
   function runMailboxSync(ctx: ExtensionContext): void {
