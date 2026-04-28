@@ -260,6 +260,56 @@ module.exports = {
       'leader pane should receive completion_report wake prompt',
     )
 
+    modules.state.updateTeamState('guard-suite-team', latest => {
+      modules.state.updateMemberStatus(latest, 'researcher-guard', {
+        status: 'idle',
+        lastWakeReason: 'delivery hygiene reset',
+        lastError: undefined,
+      })
+    })
+    const oldDeliveredUnread = modules.state.pushMailboxMessage('guard-suite-team', 'researcher-guard', {
+      from: 'planner-guard',
+      to: 'researcher-guard',
+      text: 'OLD_DELIVERED_UNREAD_SHOULD_NOT_REPEAT_IN_WAKE_PROMPT',
+      type: 'question',
+      wakeHint: 'soft',
+      deliveredAt: Date.now() - 1000,
+    })
+    const newUndeliveredUnread = modules.state.pushMailboxMessage('guard-suite-team', 'researcher-guard', {
+      from: 'planner-guard',
+      to: 'researcher-guard',
+      text: 'NEW_UNDELIVERED_UNREAD_SHOULD_APPEAR_IN_WAKE_PROMPT',
+      type: 'question',
+      wakeHint: 'soft',
+    })
+
+    sentPrompts.length = 0
+    const wakeHygieneTeam = modules.state.readTeamState('guard-suite-team')
+    const wakeHygiene = await modules.runtime.wakeWorker(
+      wakeHygieneTeam,
+      'researcher-guard',
+      undefined,
+      { enabled: false, delayMs: 0 },
+    )
+    assert.equal(wakeHygiene.ok, true)
+    const workerWakePrompt = sentPrompts.map(item => item.prompt).join('\n')
+    assert.ok(
+      workerWakePrompt.includes('NEW_UNDELIVERED_UNREAD_SHOULD_APPEAR_IN_WAKE_PROMPT'),
+      'worker wake prompt should include newly undelivered unread message',
+    )
+    assert.equal(
+      workerWakePrompt.includes('OLD_DELIVERED_UNREAD_SHOULD_NOT_REPEAT_IN_WAKE_PROMPT'),
+      false,
+      'worker wake prompt should not repeat already delivered unread message',
+    )
+    const wakeMailbox = modules.state.readMailbox('guard-suite-team', 'researcher-guard')
+    const storedOldDelivered = wakeMailbox.find(item => item.id === oldDeliveredUnread.id)
+    const storedNewDelivered = wakeMailbox.find(item => item.id === newUndeliveredUnread.id)
+    assert.ok(storedOldDelivered?.deliveredAt, 'old delivered unread should remain delivered')
+    assert.equal(storedOldDelivered?.readAt, undefined, 'old delivered unread should not be marked read by wake')
+    assert.ok(storedNewDelivered?.deliveredAt, 'new undelivered unread should be marked delivered after wake')
+    assert.equal(storedNewDelivered?.readAt, undefined, 'new delivered unread should not be marked read by wake')
+
     const originalSendPrompt = modules.tmux.sendPromptToPane
     modules.tmux.sendPromptToPane = async () => {
       throw new Error('simulated wake failure')

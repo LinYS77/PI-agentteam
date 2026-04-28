@@ -61,15 +61,19 @@ function updateMemberStatusPersisted(
   })
 }
 
-function buildMemberTurnPrompt(team: TeamState, memberName: string, explicitTask?: string): string | null {
+function buildMemberTurnPrompt(
+  team: TeamState,
+  memberName: string,
+  explicitTask: string | undefined,
+  unreadMessagesForPrompt: ReturnType<typeof peekUnreadMailbox>,
+): string | null {
   const member = team.members[memberName]
   if (!member || member.name === TEAM_LEAD) return null
-  const unread = peekUnreadMailbox(team.name, memberName)
   const assigned = Object.values(team.tasks)
     .filter(task => task.owner === memberName && task.status !== 'completed')
     .sort((a, b) => a.id.localeCompare(b.id))
 
-  const hasTrigger = Boolean(member.bootPrompt || explicitTask || unread.length > 0 || assigned.length > 0)
+  const hasTrigger = Boolean(member.bootPrompt || explicitTask || unreadMessagesForPrompt.length > 0 || assigned.length > 0)
   if (!hasTrigger) return null
 
   const sections: string[] = []
@@ -81,9 +85,9 @@ function buildMemberTurnPrompt(team: TeamState, memberName: string, explicitTask
       `Assigned tasks: ${assigned.map(task => `${task.id} ${oneLine(task.title)} — ${oneLine(task.description)}`).join(' | ')}`,
     )
   }
-  if (unread.length > 0) {
+  if (unreadMessagesForPrompt.length > 0) {
     sections.push(
-      `Messages: ${unread.map(msg => `from ${msg.from}: ${oneLine(msg.text)}`).join(' | ')}`,
+      `Messages: ${unreadMessagesForPrompt.map(msg => `from ${msg.from}: ${oneLine(msg.text)}`).join(' | ')}`,
     )
   }
   if (explicitTask) {
@@ -149,10 +153,11 @@ export async function wakeWorker(
   }
 
   const unread = peekUnreadMailbox(team.name, memberName)
-  const prompt = buildMemberTurnPrompt(team, memberName, explicitTask)
-  if (!prompt) return { ok: false, recipient: memberName, reason: 'no prompt-worthy task, boot prompt, or unread message' }
+  const undeliveredUnread = undeliveredMailboxMessages(unread)
+  const prompt = buildMemberTurnPrompt(team, memberName, explicitTask, undeliveredUnread)
+  if (!prompt) return { ok: false, recipient: memberName, reason: 'no prompt-worthy task, boot prompt, or undelivered message' }
 
-  const wakeReason = explicitTask ? 'direct assignment' : unread.length > 0 ? 'mailbox/task update' : 'task update'
+  const wakeReason = explicitTask ? 'direct assignment' : undeliveredUnread.length > 0 ? 'mailbox/task update' : 'task update'
   cancelPendingNudge(memberName)
   updateMemberStatusPersisted(team, memberName, {
     status: 'running',
@@ -177,7 +182,7 @@ export async function wakeWorker(
   markMailboxMessagesDelivered(
     team.name,
     memberName,
-    unread.map(msg => msg.id),
+    undeliveredUnread.map(msg => msg.id),
   )
 
   let nudgeScheduled = false
