@@ -19,6 +19,7 @@ module.exports = {
     assert.ok(files.includes('tmux/'), 'package files should include tmux submodules')
     assert.ok(files.includes('*.ts'), 'package files should include top-level runtime facade/submodules')
     assert.ok(!files.includes('tests/'), 'published package should not include test suites')
+    assert.ok(!files.includes('scripts/'), 'published package should not include local development seed scripts')
 
     const toolRegistrationFiles = [
       'tools/team.ts',
@@ -59,6 +60,19 @@ module.exports = {
     ]) {
       assert.ok(!sourceText.includes(name), `source should not reference removed helper ${name}`)
     }
+
+    const researcherPrompt = fs.readFileSync(path.join(root, 'agents/researcher.md'), 'utf8')
+    assert.ok(researcherPrompt.includes('Core question: What is true?'), 'researcher prompt should be fact-focused')
+    assert.ok(researcherPrompt.includes('Avoid full implementation planning unless team-lead explicitly asks'), 'researcher should avoid full planning by default')
+
+    const plannerPrompt = fs.readFileSync(path.join(root, 'agents/planner.md'), 'utf8')
+    assert.ok(plannerPrompt.includes('not a second leader'), 'planner prompt should preserve advisory role')
+    assert.ok(plannerPrompt.includes('Do not create downstream execution tasks by default'), 'planner should not own downstream task creation by default')
+    assert.ok(plannerPrompt.includes('Only create/update task-board decomposition when team-lead explicitly asks'), 'planner task-board decomposition should be explicit')
+
+    const implementerPrompt = fs.readFileSync(path.join(root, 'agents/implementer.md'), 'utf8')
+    assert.ok(implementerPrompt.includes('Core question: Make it real.'), 'implementer prompt should be execution-focused')
+    assert.ok(implementerPrompt.includes('assigned task boundary'), 'implementer should stay within task boundary')
 
     const peers = pkg.peerDependencies || {}
     assert.equal(peers['@mariozechner/pi-ai'], '*', 'peerDependencies should include @mariozechner/pi-ai')

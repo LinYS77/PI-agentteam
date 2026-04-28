@@ -197,5 +197,14 @@ module.exports = {
     assert.equal(unreadScopeSnapshot.blockedCount, 0)
     assert.equal(unreadScopeSnapshot.unreadCount, 1)
     assert.equal(unreadScopeSnapshot.latestUnreadMessageId, unreadQuestion.id)
+
+    const policy = env.helpers.requireDist('policy.js')
+    const leaderPolicy = policy.buildLeaderDelegationPolicy('decision-suite')
+    assert.ok(leaderPolicy.includes('Manual control'), 'leader policy should reject autonomous orchestration')
+    assert.ok(leaderPolicy.includes('delegate at least one meaningful task'), 'leader policy should prevent solo-worker fallback when user asks for team help')
+    assert.ok(leaderPolicy.includes('spawn only the minimum necessary teammate'), 'leader policy should discourage over-spawning')
+    assert.ok(leaderPolicy.includes('Planner is advisory'), 'leader policy should keep planner from becoming a second leader')
+    assert.ok(leaderPolicy.includes('task-first flow'), 'leader policy should keep task-first workflow')
+    assert.ok(leaderPolicy.includes('Current teammate roster:'), 'leader policy should include current roster when attached')
   },
 }

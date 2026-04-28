@@ -1,4 +1,5 @@
 import { ensureTeamStorageReady, reconcileTeamPanes } from '../runtime.js'
+import { isMailboxMessageUnread } from '../messageLifecycle.js'
 import { mailboxUrgencyRank, normalizeMessageType } from '../protocol.js'
 import { listAgentTeamPanes } from '../tmux.js'
 import { listTeams, readMailbox, readTeamState, updateTeamState } from '../state.js'
@@ -51,15 +52,32 @@ export type PanelActionMenu = {
 export type AttachedPanelData = {
   mode: 'attached'
   team: TeamState
-  leader: TeamMember | undefined
   members: TeamMember[]
   tasks: TeamTask[]
   mailbox: LeaderMailboxItem[]
 }
 
+export type TeamAttentionSummary = {
+  blockedTasks: number
+  unreadMessages: number
+  blockedMessages: number
+  unownedActiveTasks: number
+  errorMembers: number
+  paneLostMembers: number
+}
+
+export type GlobalTeamMailboxProjection = {
+  total: number
+  unread: number
+  blocked: number
+  latestAttention?: MailboxMessage
+}
+
 export type GlobalPanelData = {
   mode: 'global'
   teams: TeamState[]
+  teamSummaries: Record<string, TeamAttentionSummary>
+  teamMailboxes: Record<string, GlobalTeamMailboxProjection>
   orphanPanes: GlobalPaneItem[]
 }
 
@@ -72,13 +90,12 @@ export type TeamPanelState = {
   selectedTeamIndex: number
   selectedPaneIndex: number
   isDetailExpanded: boolean
-  footerHint: string
+  detailScrollOffset: number
   interactionMode: PanelInteractionMode
   actionMenu?: PanelActionMenu
 }
 
 export type PanelSelectionView = {
-  selectedMemberName?: string
   visibleTasks: TeamTask[]
   visibleMailbox: LeaderMailboxItem[]
   selectedTask?: TeamTask
@@ -96,8 +113,34 @@ export function createInitialPanelState(): TeamPanelState {
     selectedTeamIndex: 0,
     selectedPaneIndex: 0,
     isDetailExpanded: false,
-    footerHint: 'Ready',
+    detailScrollOffset: 0,
     interactionMode: 'browse',
+  }
+}
+
+export function hasPaneLostAttention(member: TeamMember): boolean {
+  const lastWake = String(member.lastWakeReason ?? '').toLowerCase()
+  const lastError = String(member.lastError ?? '').toLowerCase()
+  return member.status === 'error' && (
+    lastWake.includes('pane lost') ||
+    lastError.includes('pane disappeared') ||
+    lastError.includes('pane lost')
+  )
+}
+
+export function buildTeamAttentionSummary(
+  team: TeamState,
+  mailbox: MailboxMessage[],
+): TeamAttentionSummary {
+  const teammates = Object.values(team.members).filter(member => member.name !== TEAM_LEAD)
+  const tasks = Object.values(team.tasks)
+  return {
+    blockedTasks: tasks.filter(task => task.status === 'blocked').length,
+    unreadMessages: mailbox.filter(isMailboxMessageUnread).length,
+    blockedMessages: mailbox.filter(item => mailboxType(item) === 'blocked').length,
+    unownedActiveTasks: tasks.filter(task => task.status !== 'completed' && !task.owner).length,
+    errorMembers: teammates.filter(member => member.status === 'error').length,
+    paneLostMembers: teammates.filter(hasPaneLostAttention).length,
   }
 }
 
@@ -108,7 +151,6 @@ function loadAttachedPanelData(teamName: string): AttachedPanelData | null {
   if (reconcileTeamPanes(team, { force: true })) {
     updateTeamState(team.name, () => team)
   }
-  const leader = team.members[TEAM_LEAD]
   const members = Object.values(team.members)
     .filter(member => member.name !== TEAM_LEAD)
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -116,11 +158,13 @@ function loadAttachedPanelData(teamName: string): AttachedPanelData | null {
   const mailbox = (readMailbox(teamName, TEAM_LEAD) as LeaderMailboxItem[])
     .slice()
     .sort((a, b) => b.createdAt - a.createdAt)
-  return { mode: 'attached', team, leader, members, tasks, mailbox }
+  return { mode: 'attached', team, members, tasks, mailbox }
 }
 
 function loadGlobalPanelData(): GlobalPanelData {
   const teams = listTeams()
+  const teamSummaries: Record<string, TeamAttentionSummary> = {}
+  const teamMailboxes: Record<string, GlobalTeamMailboxProjection> = {}
   const knownPaneIds = new Set<string>()
   for (const team of teams) {
     ensureTeamStorageReady(team)
@@ -130,13 +174,24 @@ function loadGlobalPanelData(): GlobalPanelData {
     for (const member of Object.values(team.members)) {
       if (member.paneId) knownPaneIds.add(member.paneId)
     }
+    const leaderMailbox = readMailbox(team.name, TEAM_LEAD)
+    const latestAttention = leaderMailbox
+      .filter(item => isMailboxMessageUnread(item) || mailboxType(item) === 'blocked')
+      .sort((a, b) => b.createdAt - a.createdAt)[0]
+    teamSummaries[team.name] = buildTeamAttentionSummary(team, leaderMailbox)
+    teamMailboxes[team.name] = {
+      total: leaderMailbox.length,
+      unread: leaderMailbox.filter(isMailboxMessageUnread).length,
+      blocked: leaderMailbox.filter(item => mailboxType(item) === 'blocked').length,
+      latestAttention,
+    }
   }
 
   const orphanPanes = listAgentTeamPanes()
     .filter(pane => !knownPaneIds.has(pane.paneId))
     .sort((a, b) => a.paneId.localeCompare(b.paneId))
 
-  return { mode: 'global', teams, orphanPanes }
+  return { mode: 'global', teams, teamSummaries, teamMailboxes, orphanPanes }
 }
 
 export function loadPanelData(teamName?: string | null): PanelData {
@@ -171,15 +226,6 @@ function getVisibleTasks(
   data: AttachedPanelData,
 ): TeamTask[] {
   return data.tasks
-}
-
-function getCurrentSelectedMemberName(
-  data: AttachedPanelData,
-  state: TeamPanelState,
-): string | undefined {
-  if (data.members.length === 0) return undefined
-  const index = Math.max(0, Math.min(state.selectedMemberIndex, data.members.length - 1))
-  return data.members[index]?.name
 }
 
 function isAttachedFocus(focus: FocusSection): boolean {
@@ -264,12 +310,10 @@ export function buildPanelSelectionView(
     }
   }
 
-  const selectedMemberName = getCurrentSelectedMemberName(data, state)
   const visibleTasks = getVisibleTasks(data)
   const visibleMailbox = filterMailboxItems(data.mailbox)
 
   return {
-    selectedMemberName,
     visibleTasks,
     visibleMailbox,
     selectedTask: visibleTasks[state.focus === 'tasks' ? state.selectedIndex : 0],

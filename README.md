@@ -98,7 +98,7 @@ Not attached to a team:
 | `Enter` | Open action menu / choose action |
 | `Esc` | Step back / close |
 
-The panel intentionally does **not** focus tmux panes or perform task/message CRUD. Use tmux for pane navigation, and use tools for collaboration work. `/team` is for local runtime visibility, recovery, and cleanup.
+The panel intentionally does **not** focus tmux panes or perform task/message CRUD. Use tmux for pane navigation, and use tools for collaboration work. `/team` is for local runtime visibility, recovery, and cleanup. Expanded Details use an internal reader so long notes/messages remain readable without flooding terminal scrollback.
 
 Available action-menu operations include:
 
@@ -134,13 +134,13 @@ Messages carry an implicit **wake hint** that controls how the recipient reacts.
 agentteam intentionally keeps a small fixed role set for predictable permissions and prompts.
 
 **🔬 researcher** — `read` `grep` `find` `ls` + collab
-> Codebase analysis, documentation research
+> Fact finding: relevant files, constraints, risks, and evidence-backed findings
 
 **📋 planner** — `read` `grep` `find` `ls` + collab
-> Task decomposition, acceptance criteria
+> Advisory planning for complex work: options, risks, dependencies, and acceptance criteria
 
 **🛠 implementer** — `read` `grep` `find` `ls` `bash` `edit` `write` + collab
-> Code changes, file creation, test runs
+> Focused code changes, checks, and validation evidence
 
 > **collab** = `agentteam_send` + `agentteam_receive` + `agentteam_task`
 

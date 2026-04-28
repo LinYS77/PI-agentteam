@@ -13,12 +13,14 @@ import type {
   PanelActionMenu,
   PanelData,
   PanelSelectionView,
+  TeamAttentionSummary,
   TeamPanelState,
 } from './viewModel.js'
-import { mailboxType } from './viewModel.js'
+import { buildTeamAttentionSummary, hasPaneLostAttention, mailboxType } from './viewModel.js'
 
 type RenderLayoutInput = {
   width: number
+  height?: number
   data: PanelData
   state: TeamPanelState
   selection: PanelSelectionView
@@ -42,6 +44,30 @@ function formatAge(ageMs: number): string {
   const hours = Math.floor(minutes / 60)
   const rem = minutes % 60
   return rem === 0 ? `${hours}h` : `${hours}h${rem}m`
+}
+
+function formatDateTime(timeMs: number | undefined): string {
+  if (!timeMs) return '-'
+  return new Date(timeMs).toLocaleString()
+}
+
+function memberPaneLabel(member: TeamMember): string {
+  return member.paneId ? `pane ${member.paneId}` : 'no pane'
+}
+
+function memberHealthLabel(member: TeamMember): string {
+  if (hasPaneLostAttention(member)) return 'pane lost'
+  if (member.status === 'error') return 'error'
+  if (!member.paneId) return 'no pane'
+  return member.status
+}
+
+function memberHealthColor(member: TeamMember): 'error' | 'warning' | 'accent' | 'dim' | 'text' {
+  if (hasPaneLostAttention(member) || member.status === 'error') return 'error'
+  if (!member.paneId) return 'warning'
+  if (member.status === 'running') return 'warning'
+  if (member.status === 'queued') return 'accent'
+  return 'dim'
 }
 
 function mailboxTypeIcon(type: ReturnType<typeof mailboxType>): string {
@@ -198,18 +224,76 @@ function taskStatusBadge(theme: ExtensionContext['ui']['theme'], status: TeamTas
   return theme.fg(color, `[${taskStatusIcon(status)} ${status}]`)
 }
 
-function detailKV(
+function attentionSummaryParts(
   theme: ExtensionContext['ui']['theme'],
-  label: string,
-  value: string,
-  color: 'dim' | 'accent' | 'warning' | 'error' | 'success' | 'text' = 'dim',
-): string {
-  return renderDetailField(theme, label, value, color)
+  summary: TeamAttentionSummary,
+): string[] {
+  const parts: string[] = []
+  if (summary.paneLostMembers > 0) parts.push(theme.fg('error', `pane lost ${summary.paneLostMembers}`))
+  else if (summary.errorMembers > 0) parts.push(theme.fg('error', `⚠ ${summary.errorMembers} member error${summary.errorMembers === 1 ? '' : 's'}`))
+  if (summary.blockedTasks > 0) parts.push(theme.fg('error', `⚠ ${summary.blockedTasks} blocked task${summary.blockedTasks === 1 ? '' : 's'}`))
+  if (summary.blockedMessages > 0) parts.push(theme.fg('error', `⧗ ${summary.blockedMessages} blocked msg${summary.blockedMessages === 1 ? '' : 's'}`))
+  if (summary.unreadMessages > 0) parts.push(theme.fg('warning', `✉ ${summary.unreadMessages} unread`))
+  if (summary.unownedActiveTasks > 0) parts.push(theme.fg('warning', `◇ ${summary.unownedActiveTasks} unowned`))
+  return parts
+}
+
+function compactAttentionSummaryParts(
+  theme: ExtensionContext['ui']['theme'],
+  summary: TeamAttentionSummary,
+): string[] {
+  const parts: string[] = []
+  if (summary.paneLostMembers > 0) parts.push(theme.fg('error', `lost${summary.paneLostMembers}`))
+  else if (summary.errorMembers > 0) parts.push(theme.fg('error', `err${summary.errorMembers}`))
+  if (summary.blockedTasks > 0) parts.push(theme.fg('error', `⚠${summary.blockedTasks}`))
+  if (summary.blockedMessages > 0) parts.push(theme.fg('error', `⧗${summary.blockedMessages}`))
+  if (summary.unreadMessages > 0) parts.push(theme.fg('warning', `✉${summary.unreadMessages}`))
+  if (summary.unownedActiveTasks > 0) parts.push(theme.fg('warning', `◇${summary.unownedActiveTasks}`))
+  return parts
+}
+
+function foldAttentionParts(
+  theme: ExtensionContext['ui']['theme'],
+  parts: string[],
+  limit = 3,
+): string[] {
+  if (parts.length <= limit) return parts
+  return [...parts.slice(0, limit), theme.fg('dim', `+${parts.length - limit} more`)]
+}
+
+function foldCompactAttentionParts(
+  theme: ExtensionContext['ui']['theme'],
+  parts: string[],
+  limit = 3,
+): string[] {
+  if (parts.length <= limit) return parts
+  return [...parts.slice(0, limit), theme.fg('dim', `+${parts.length - limit}`)]
+}
+
+function sumAttentionSummaries(summaries: TeamAttentionSummary[]): TeamAttentionSummary {
+  return summaries.reduce<TeamAttentionSummary>((acc, item) => ({
+    blockedTasks: acc.blockedTasks + item.blockedTasks,
+    unreadMessages: acc.unreadMessages + item.unreadMessages,
+    blockedMessages: acc.blockedMessages + item.blockedMessages,
+    unownedActiveTasks: acc.unownedActiveTasks + item.unownedActiveTasks,
+    errorMembers: acc.errorMembers + item.errorMembers,
+    paneLostMembers: acc.paneLostMembers + item.paneLostMembers,
+  }), {
+    blockedTasks: 0,
+    unreadMessages: 0,
+    blockedMessages: 0,
+    unownedActiveTasks: 0,
+    errorMembers: 0,
+    paneLostMembers: 0,
+  })
 }
 
 function renderOverviewLine(theme: ExtensionContext['ui']['theme'], data: PanelData): string {
   if (data.mode === 'global') {
-    return `${theme.bold(theme.fg('text', '✦  AgentTeam Console '))} ${theme.fg('dim', '│')} Teams ${data.teams.length} ${theme.fg('dim', '│')} Stale panes ${data.orphanPanes.length}`
+    const globalAttention = sumAttentionSummaries(Object.values(data.teamSummaries))
+    const attention = foldAttentionParts(theme, attentionSummaryParts(theme, globalAttention))
+    const attentionText = attention.length > 0 ? attention.join(theme.fg('dim', ' · ')) : theme.fg('dim', 'OK')
+    return `${theme.bold(theme.fg('text', '✦  AgentTeam Console '))} ${theme.fg('dim', '│')} Attention ${attentionText} ${theme.fg('dim', '│')} Teams ${data.teams.length} ${theme.fg('dim', '│')} Stale panes ${data.orphanPanes.length}`
   }
 
   const runningCount = data.members.filter(member => member.status === 'running').length
@@ -230,8 +314,10 @@ function renderOverviewLine(theme: ExtensionContext['ui']['theme'], data: PanelD
   const mStatus = `${theme.fg('warning', `⟳ ${runningCount}`)} ${theme.fg('accent', `⋯ ${queuedCount}`)} ${theme.fg('dim', `○ ${idleCount}`)}${errorCount ? ` ${theme.fg('error', `⚠ ${errorCount}`)}` : ''}`
   const tStatus = `${theme.fg('dim', `○ ${pendingCount}`)} ${theme.fg('warning', `⟳ ${inProgressCount}`)} ${theme.fg('error', `⚠ ${blockedCount}`)} ${theme.fg('success', `✔ ${completedCount}`)}`
   const sStatus = `${theme.fg(unreadMsgCount > 0 ? 'warning' : 'dim', `${unreadMsgCount} unread`)} · ${theme.fg(blockedMsgCount > 0 ? 'error' : 'dim', `${blockedMsgCount} blocked`)} · total ${data.mailbox.length}`
+  const attention = foldAttentionParts(theme, attentionSummaryParts(theme, buildTeamAttentionSummary(data.team, data.mailbox)))
+  const attentionText = attention.length > 0 ? attention.join(theme.fg('dim', ' · ')) : theme.fg('dim', 'OK')
 
-  return `${tName} ${theme.fg('dim', '│')} 👥 Members  ${mStatus}  ${theme.fg('dim', '│')} 📋 Tasks  ${tStatus}  ${theme.fg('dim', '│')} 📬 Mail  ${sStatus}`
+  return `${tName} ${theme.fg('dim', '│')} Attention ${attentionText}  ${theme.fg('dim', '│')} 👥 Members  ${mStatus}  ${theme.fg('dim', '│')} 📋 Tasks  ${tStatus}  ${theme.fg('dim', '│')} 📬 Mail  ${sStatus}`
 }
 
 function renderMembersLines(
@@ -258,14 +344,23 @@ function renderMembersLines(
     
     const unread = data.mailbox.filter(m => m.from === member.name && isMailboxMessageUnread(m)).length
     const activeTasks = data.tasks.filter(t => t.owner === member.name && t.status !== 'completed').length
+    const blockedTasks = data.tasks.filter(t => t.owner === member.name && t.status === 'blocked').length
+    const paneLost = hasPaneLostAttention(member)
     const ageStr = formatAge(Date.now() - member.updatedAt)
+    const paneStr = paneLost ? 'pane lost' : memberPaneLabel(member)
+    const paneColor = paneLost ? 'error' : member.paneId ? 'dim' : 'warning'
+    const attention = [
+      blockedTasks > 0 ? theme.fg('error', `blocked ${blockedTasks}`) : '',
+      unread > 0 ? theme.fg('warning', `unread ${unread}`) : '',
+    ].filter(Boolean).join(theme.fg('dim', ' · '))
     
-    const statsStr = theme.fg('dim', `${short(member.role, 10)} · ✉ ${unread} · 📝 ${activeTasks} · ⏱ ${ageStr}`)
+    const statsStr = `${theme.fg('dim', short(member.role, 10))} · ${theme.fg(paneColor, paneStr)} · ${theme.fg('dim', `tasks ${activeTasks}`)} · ${theme.fg('dim', `unread ${unread}`)} · ${theme.fg('dim', `age ${ageStr}`)}`
+    const attentionStr = attention ? `  ${attention}` : ''
     const nameStr = short(member.name, 14)
     const nameCol = isSelected ? padCell(theme.bold(theme.fg('accent', nameStr)), 14) : padCell(theme.fg('text', nameStr), 14)
     
     lines.push(
-      `${pointer}  ${nameCol} ${memberStatusBadge(theme, member.status)}  ${statsStr}`,
+      `${pointer}  ${nameCol} ${memberStatusBadge(theme, member.status)}  ${statsStr}${attentionStr}`,
     )
   }
 
@@ -303,9 +398,14 @@ function renderTaskLines(
     const idCol = padCell(isSelected ? theme.bold(theme.fg('accent', task.id)) : theme.fg('dim', task.id), 8)
     const ownerCol = theme.fg('dim', `@${short(task.owner ?? '-', 10)}`)
     const titleCol = padCell(isSelected ? theme.fg('text', short(task.title, 30)) : theme.fg('text', short(task.title, 30)), 30)
+    const attention = [
+      task.status === 'blocked' ? theme.fg('error', 'blocked') : '',
+      task.status !== 'completed' && !task.owner ? theme.fg('warning', 'unowned') : '',
+    ].filter(Boolean).join(theme.fg('dim', ' · '))
+    const attentionStr = attention ? `  ${attention}` : ''
     
     lines.push(
-      `${pointer}  ${idCol}  ${taskStatusBadge(theme, task.status)}  ${titleCol}  ${ownerCol}`,
+      `${pointer}  ${idCol}  ${taskStatusBadge(theme, task.status)}  ${titleCol}  ${ownerCol}${attentionStr}`,
     )
   }
 
@@ -348,11 +448,16 @@ function renderMailboxLines(
     const summaryText = short(item.summary ?? item.text, 36)
     const summaryFmt = isUnread ? theme.bold(theme.fg('text', summaryText)) : theme.fg('dim', summaryText)
     const summaryCol = padCell(summaryFmt, 36)
+    const attention = [
+      isUnread ? theme.fg('warning', 'unread') : '',
+      type === 'blocked' ? theme.fg('error', 'blocked') : '',
+    ].filter(Boolean).join(theme.fg('dim', ' · '))
+    const attentionStr = attention ? `  ${attention}` : ''
     
     const timeStr = theme.fg('dim', new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }))
 
     lines.push(
-      `${pointer}  ${icon}  ${fromCol}  ${summaryCol}  ${timeStr}`,
+      `${pointer}  ${icon}  ${fromCol}  ${summaryCol}  ${timeStr}${attentionStr}`,
     )
   }
 
@@ -364,14 +469,16 @@ function renderMailboxLines(
   return lines
 }
 
-function teamStatusLine(theme: ExtensionContext['ui']['theme'], team: Extract<PanelData, { mode: 'global' }>['teams'][number]): string {
+function teamStatusLine(
+  theme: ExtensionContext['ui']['theme'],
+  team: Extract<PanelData, { mode: 'global' }>['teams'][number],
+  summary?: TeamAttentionSummary,
+): string {
   const teammates = Object.values(team.members).filter(member => member.name !== 'team-lead')
-  const errorCount = teammates.filter(member => member.status === 'error').length
   const taskCount = Object.keys(team.tasks).length
-  const leader = team.members['team-lead']
-  const leaderPane = leader?.paneId ? `pane ${leader.paneId}` : 'leader pane missing'
-  const errorSuffix = errorCount > 0 ? theme.fg('error', ` · ${errorCount} error`) : ''
-  return `${teammates.length} teammate(s) · ${taskCount} task(s) · ${leaderPane}${errorSuffix}`
+  const attention = summary ? foldCompactAttentionParts(theme, compactAttentionSummaryParts(theme, summary)) : []
+  const attentionSuffix = attention.length > 0 ? attention.join(' ') : theme.fg('success', 'OK')
+  return `${teammates.length}m · ${taskCount}t · ${attentionSuffix}`
 }
 
 function renderGlobalTeamLines(
@@ -392,7 +499,7 @@ function renderGlobalTeamLines(
     const isSelected = state.focus === 'teams' && absolute === state.selectedIndex
     const pointer = isSelected ? theme.fg('accent', '›') : ' '
     const name = isSelected ? theme.bold(theme.fg('accent', short(team.name, 24))) : theme.fg('text', short(team.name, 24))
-    lines.push(`${pointer}  ${padCell(name, 24)} ${theme.fg('dim', teamStatusLine(theme, team))}`)
+    lines.push(`${pointer}  ${padCell(name, 24)} ${theme.fg('dim', teamStatusLine(theme, team, data.teamSummaries[team.name]))}`)
   }
   const hiddenBelow = data.teams.length - (teamsWindow.offset + teamsWindow.items.length)
   if (hiddenBelow > 0) lines.push(theme.fg('dim', `… ${hiddenBelow} below`))
@@ -438,9 +545,11 @@ function renderGlobalDetailLines(
     } else {
       detailLines.push(`🧹 ${theme.bold(theme.fg('text', pane.paneId))}`)
       detailLines.push('')
-      detailLines.push(detailKV(theme, 'Target', pane.target || '-', 'text'))
-      detailLines.push(detailKV(theme, 'Label', pane.label || '-', 'text'))
-      detailLines.push(detailKV(theme, 'Command', pane.currentCommand || '-', 'text'))
+      detailLines.push(renderDetailField(theme, 'Pane', pane.paneId, 'text'))
+      detailLines.push(renderDetailField(theme, 'Target', pane.target || '-', 'text'))
+      detailLines.push(renderDetailField(theme, 'Label', pane.label || '-', pane.label ? 'warning' : 'dim'))
+      detailLines.push(renderDetailField(theme, 'Command', pane.currentCommand || '-', 'text'))
+      detailLines.push(renderDetailField(theme, 'State', 'stale agentteam-labeled pane', 'warning'))
     }
   } else {
     const team = selection.selectedTeam
@@ -450,12 +559,61 @@ function renderGlobalDetailLines(
       const teammates = Object.values(team.members).filter(member => member.name !== 'team-lead')
       const tasks = Object.values(team.tasks)
       const leader = team.members['team-lead']
+      const summary = data.teamSummaries[team.name]
+      const mailbox = data.teamMailboxes[team.name]
       detailLines.push(`🤝 ${theme.bold(theme.fg('text', team.name))}`)
       detailLines.push('')
-      detailLines.push(detailKV(theme, 'Teammates', String(teammates.length), 'text'))
-      detailLines.push(detailKV(theme, 'Tasks', String(tasks.length), 'text'))
-      detailLines.push(detailKV(theme, 'Leader pane', leader?.paneId ?? 'missing', leader?.paneId ? 'text' : 'warning'))
-      detailLines.push(detailKV(theme, 'Created', new Date(team.createdAt).toLocaleString(), 'text'))
+      const errorCount = teammates.filter(member => member.status === 'error').length
+      const missingPaneCount = teammates.filter(member => !member.paneId).length
+      const runningCount = teammates.filter(member => member.status === 'running').length
+      const queuedCount = teammates.filter(member => member.status === 'queued').length
+      const idleCount = teammates.filter(member => member.status === 'idle').length
+      const pendingCount = tasks.filter(task => task.status === 'pending').length
+      const inProgressCount = tasks.filter(task => task.status === 'in_progress').length
+      const blockedCount = tasks.filter(task => task.status === 'blocked').length
+      const completedCount = tasks.filter(task => task.status === 'completed').length
+      const unownedCount = tasks.filter(task => task.status !== 'completed' && !task.owner).length
+      const attentionParts = summary ? attentionSummaryParts(theme, summary) : []
+      detailLines.push(renderDetailField(theme, 'Teammates', String(teammates.length), 'text'))
+      detailLines.push(renderDetailField(theme, 'Health', `running ${runningCount} · queued ${queuedCount} · idle ${idleCount} · error ${errorCount} · no pane ${missingPaneCount}`, errorCount || missingPaneCount ? 'warning' : 'text'))
+      detailLines.push(renderDetailField(theme, 'Tasks', `pending ${pendingCount} · active ${inProgressCount} · blocked ${blockedCount} · done ${completedCount} · unowned ${unownedCount}`, blockedCount || unownedCount ? 'warning' : 'text'))
+      detailLines.push(renderDetailField(theme, 'Mailbox', mailbox ? `unread ${mailbox.unread} · blocked ${mailbox.blocked} · total ${mailbox.total}` : 'unread 0 · blocked 0 · total 0', mailbox && (mailbox.unread || mailbox.blocked) ? 'warning' : 'text'))
+      detailLines.push(renderDetailField(theme, 'Attention', attentionParts.join(' · ') || 'OK', attentionParts.length > 0 ? 'warning' : 'text'))
+      detailLines.push(renderDetailField(theme, 'Leader pane', leader?.paneId ?? 'missing', leader?.paneId ? 'text' : 'warning'))
+      detailLines.push(renderDetailField(theme, 'Created', new Date(team.createdAt).toLocaleString(), 'text'))
+
+      if (mailbox?.latestAttention) {
+        const latest = mailbox.latestAttention
+        const latestType = mailboxType(latest)
+        detailLines.push('')
+        detailLines.push(...renderDetailBlock(theme, `Latest mail attention · ${latestType} · ${latest.from}`, latest.summary ?? latest.text, 44, latestType === 'blocked' ? 'error' : 'text'))
+      } else {
+        const latestBlocked = tasks
+          .filter(task => task.status === 'blocked' || (task.status !== 'completed' && !task.owner))
+          .sort((a, b) => b.updatedAt - a.updatedAt)[0]
+        if (latestBlocked) {
+          const kind = latestBlocked.status === 'blocked' ? 'blocked task' : 'unowned task'
+          detailLines.push('')
+          detailLines.push(...renderDetailBlock(theme, `Latest task attention · ${kind} · ${latestBlocked.id}`, latestBlocked.title, 44, latestBlocked.status === 'blocked' ? 'error' : 'warning'))
+        }
+      }
+
+      if (teammates.length > 0) {
+        detailLines.push('')
+        detailLines.push(renderDetailSeparator(theme, 44))
+        detailLines.push(theme.bold(theme.fg('dim', 'Roster')))
+        for (const member of teammates.slice(0, 4)) {
+          const health = memberHealthLabel(member)
+          const pane = memberPaneLabel(member)
+          const healthCol = padCell(theme.fg(memberHealthColor(member), short(health, 9)), 10)
+          const nameCol = padCell(theme.fg('text', short(member.name, 16)), 16)
+          const roleCol = padCell(theme.fg('dim', short(member.role, 10)), 10)
+          const paneCol = theme.fg(member.paneId ? 'dim' : 'warning', short(pane, 12))
+          detailLines.push(`  ${healthCol}${nameCol}${roleCol}${paneCol}`)
+        }
+        const hidden = teammates.length - 4
+        if (hidden > 0) detailLines.push(theme.fg('dim', `  … ${hidden} more teammate(s)`))
+      }
     }
   }
   detailLines.push('')
@@ -597,9 +755,14 @@ function renderDetailLines(
     const msgCount = data.mailbox.filter(item => item.from === selectedMember.name).length
     detailLines.push(`👤 ${theme.bold(theme.fg('text', selectedMember.name))}  ${memberStatusBadge(theme, selectedMember.status)}  ${theme.fg('dim', selectedMember.role)}`)
     detailLines.push('')
+    detailLines.push(renderDetailField(theme, 'Health', memberHealthLabel(selectedMember), memberHealthColor(selectedMember)))
+    detailLines.push(renderDetailField(theme, 'Pane', memberPaneLabel(selectedMember), selectedMember.paneId ? 'text' : 'warning'))
+    if (selectedMember.windowTarget) detailLines.push(renderDetailField(theme, 'Window', selectedMember.windowTarget, 'text'))
     detailLines.push(renderDetailField(theme, 'Tasks', String(activeTasks), 'text'))
     detailLines.push(renderDetailField(theme, 'Mailbox', String(msgCount), 'text'))
     detailLines.push(renderDetailField(theme, 'Session', basename(selectedMember.sessionFile), 'text'))
+    detailLines.push(renderDetailField(theme, 'Updated', `${formatDateTime(selectedMember.updatedAt)} (${formatAge(Date.now() - selectedMember.updatedAt)} ago)`, 'text'))
+    detailLines.push(renderDetailField(theme, 'Created', formatDateTime(selectedMember.createdAt), 'text'))
     if (selectedMember.lastWakeReason) detailLines.push(renderDetailField(theme, 'Wake', selectedMember.lastWakeReason, 'text'))
     if (selectedMember.lastError) detailLines.push(renderDetailField(theme, 'Error', selectedMember.lastError, 'error'))
     
@@ -679,11 +842,68 @@ function renderDetailLines(
   return detailLines
 }
 
+function detailReaderSubject(
+  data: PanelData,
+  state: TeamPanelState,
+  selection: PanelSelectionView,
+): string {
+  if (data.mode === 'global') {
+    if (state.focus === 'panes') return selection.selectedPane ? `pane ${selection.selectedPane.paneId}` : 'stale panes'
+    return selection.selectedTeam ? `team ${selection.selectedTeam.name}` : 'teams'
+  }
+  if (state.focus === 'tasks') return selection.selectedTask ? `task ${selection.selectedTask.id}` : 'tasks'
+  if (state.focus === 'mailbox') return selection.selectedMailbox ? `message from ${selection.selectedMailbox.from}` : 'mailbox'
+  return selection.selectedMember ? `member ${selection.selectedMember.name}` : 'members'
+}
+
+function renderDetailReaderLines(
+  theme: ExtensionContext['ui']['theme'],
+  input: {
+    width: number
+    height?: number
+    overviewLine: string
+    hint: string
+    data: PanelData
+    state: TeamPanelState
+    selection: PanelSelectionView
+  },
+): string[] {
+  const safeHeight = Math.max(16, Math.floor(input.height ?? 40))
+  const safeWidth = Math.max(56, input.width)
+  const fullDetailLines = input.data.mode === 'global'
+    ? renderGlobalDetailLines(theme, input.data, input.state, input.selection)
+    : renderDetailLines(theme, input.data, input.state, input.selection, safeWidth)
+
+  // overview + blank + box borders + blank + footer = 6 rows outside body.
+  const bodyHeight = Math.max(4, safeHeight - 6)
+  const maxOffset = Math.max(0, fullDetailLines.length - bodyHeight)
+  const offset = Math.max(0, Math.min(input.state.detailScrollOffset, maxOffset))
+  input.state.detailScrollOffset = offset
+  const visibleDetailLines = fullDetailLines.slice(offset, offset + bodyHeight)
+  const start = fullDetailLines.length === 0 ? 0 : offset + 1
+  const end = Math.min(fullDetailLines.length, offset + visibleDetailLines.length)
+  const scrollSuffix = `${start}-${end}/${fullDetailLines.length}${offset > 0 ? ' ↑' : ''}${offset < maxOffset ? ' ↓' : ''}`
+  const detailBox = drawBox(theme, {
+    width: safeWidth,
+    title: `🔎 Details · ${detailReaderSubject(input.data, input.state, input.selection)} · ${scrollSuffix}`,
+    lines: visibleDetailLines,
+    focused: true,
+  })
+
+  return [
+    input.overviewLine,
+    '',
+    ...detailBox,
+    '',
+    `  ${input.hint}`,
+  ].map(line => truncateToWidth(line, input.width, ''))
+}
+
 export function renderTeamPanelLines(
   theme: ExtensionContext['ui']['theme'],
   input: RenderLayoutInput,
 ): string[] {
-  const { width, data, state, selection } = input
+  const { width, height, data, state, selection } = input
 
   const safeWidth = Math.max(56, width)
 
@@ -692,12 +912,25 @@ export function renderTeamPanelLines(
     : state.isDetailExpanded
       ? 'collapse details'
       : 'close'
+  const moveHint = state.isDetailExpanded ? 'scroll details' : 'move'
   const globalHint = theme.fg(
     'dim',
-    '⌨ ') + theme.fg('accent', '↑↓ ') + theme.fg('dim', 'move · ') + theme.fg('accent', 'Tab ') + theme.fg('dim', 'section · ') + theme.fg('accent', 'Enter ') + theme.fg('dim', 'actions · ') + theme.fg('accent', 'Esc ') + theme.fg('dim', escHint)
+    '⌨ ') + theme.fg('accent', '↑↓ ') + theme.fg('dim', `${moveHint} · `) + theme.fg('accent', 'Tab ') + theme.fg('dim', 'section · ') + theme.fg('accent', 'Enter ') + theme.fg('dim', 'actions · ') + theme.fg('accent', 'Esc ') + theme.fg('dim', escHint)
 
   const overviewStr = truncateToWidth(renderOverviewLine(theme, data), width - 2)
   const overviewLine = `  ${overviewStr}`
+
+  if (state.isDetailExpanded && state.interactionMode !== 'action-menu') {
+    return renderDetailReaderLines(theme, {
+      width,
+      height,
+      overviewLine,
+      hint: globalHint,
+      data,
+      state,
+      selection,
+    })
+  }
 
   if (data.mode === 'global') {
     const teamsLines = renderGlobalTeamLines(theme, data, state)

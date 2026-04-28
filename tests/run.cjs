@@ -252,7 +252,7 @@ function createCtx(cwd, sessionFile, notifications) {
       custom: async callback => {
         let doneValue
         const done = value => { doneValue = value }
-        const panel = await callback({ requestRender() {} }, createFakeTheme(), {}, done)
+        const panel = await callback({ requestRender() {}, terminal: { rows: 40, columns: 120 } }, createFakeTheme(), {}, done)
         if (doneValue === undefined && panel && typeof panel.handleInput === 'function') {
           panel.handleInput('__esc__')
         }

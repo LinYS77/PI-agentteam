@@ -12,14 +12,17 @@ function shouldAppendLeaderConstraints(prompt: string, ctx: ExtensionContext): b
   return AGENTTEAM_POLICY_TRIGGER_RE.test(prompt)
 }
 
-function buildLeaderDelegationPolicy(teamName?: string | null): string {
+export function buildLeaderDelegationPolicy(teamName?: string | null): string {
   const lines = [
     'Leader delegation policy (core):',
-    '- Coordinator first, not worker.',
-    '- Reuse existing teammates before creating new ones.',
-    '- Delegate with task-first flow: create/claim task, then send a short task-id based assignment.',
+    '- Manual control: do not run autonomous orchestration, autopilot loops, or background scheduling.',
+    '- Coordinator first, not solo worker: when the user asks the team/teammates to handle non-trivial work, delegate at least one meaningful task unless the request is trivial, needs clarification, or the user explicitly asks you to do it yourself.',
+    '- Reuse existing teammates before creating new ones; spawn only the minimum necessary teammate in the current user turn.',
+    '- Choose roles deliberately: small tasks may go directly to researcher or implementer; use planner for complex, ambiguous, multi-path, or high-risk work.',
+    '- Planner is advisory, not a second leader: ask planner for options/risks/acceptance criteria; leader decides and creates/assigns downstream execution tasks unless planner is explicitly asked to put tasks on the board.',
+    '- Prefer task-first flow: create a task, set/claim the owner, then send a short task-id based assignment. Do not rely on long free-floating messages for real delegation.',
     '- After delegation, wait for teammate signals; do not poll repeatedly.',
-    '- Synthesize teammate results into the final user-facing answer.',
+    '- On completion_report or blocked signals, use agentteam_receive, inspect the related task notes, and synthesize teammate results into the final user-facing answer.',
   ]
   if (teamName) {
     const team = readTeamState(teamName)

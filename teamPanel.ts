@@ -40,6 +40,7 @@ export async function openTeamPanel(
         const selection = buildPanelSelectionView(data, panelState)
         return renderTeamPanelLines(theme, {
           width,
+          height: tui.terminal.rows,
           data,
           state: panelState,
           selection,

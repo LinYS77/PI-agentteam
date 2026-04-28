@@ -21,15 +21,15 @@ function commonAttachedActions(teamName: string): PanelAction[] {
     },
     {
       id: 'delete-team',
-      label: 'Delete current team',
-      description: 'Remove team state, mailboxes, teammate panes, and bindings. Current pane stays alive but its agentteam label is cleared.',
+      label: `Delete current team ${teamName}`,
+      description: 'Current pane is never killed; its agentteam label is cleared if needed. Danger: remove this team state, mailboxes, bindings, and teammate panes.',
       danger: true,
       result: { type: 'delete-team', teamName },
     },
     {
       id: 'cleanup-all',
-      label: 'Cleanup all agentteam data/panes',
-      description: 'Emergency reset for all agentteam state. Current pane stays alive but its agentteam label is cleared.',
+      label: 'Cleanup ALL agentteam state/panes',
+      description: 'Current pane is never killed; its agentteam label is cleared if needed. Danger: reset every agentteam team, mailbox, binding, and labeled pane.',
       danger: true,
       result: { type: 'cleanup-all' },
     },
@@ -68,14 +68,14 @@ export function buildPanelActions(
       actions.push(
         {
           id: 'recover-team',
-          label: 'Recover as current leader',
-          description: 'Attach the current pi session and tmux pane as this team\'s leader.',
+          label: `Recover ${selection.selectedTeam.name} as current leader`,
+          description: 'Attach the current pi session and current tmux pane as this team\'s leader. Existing teammate state is preserved.',
           result: { type: 'recover-team', teamName: selection.selectedTeam.name },
         },
         {
           id: 'delete-team',
-          label: 'Delete team',
-          description: 'Remove selected team state, mailboxes, teammate panes, and bindings. Current pane label is cleared if needed.',
+          label: `Delete team ${selection.selectedTeam.name}`,
+          description: 'Current pane is never killed; its agentteam label is cleared if needed. Danger: remove selected team state, mailboxes, bindings, and teammate panes.',
           danger: true,
           result: { type: 'delete-team', teamName: selection.selectedTeam.name },
         },
@@ -85,8 +85,8 @@ export function buildPanelActions(
     actions.push(
       {
         id: 'cleanup-all',
-        label: 'Cleanup all agentteam data/panes',
-        description: 'Emergency reset for all agentteam state. Current pane stays alive but its agentteam label is cleared.',
+        label: 'Cleanup ALL agentteam state/panes',
+        description: 'Current pane is never killed; its agentteam label is cleared if needed. Danger: reset every agentteam team, mailbox, binding, and labeled pane.',
         danger: true,
         result: { type: 'cleanup-all' },
       },
@@ -108,8 +108,8 @@ export function buildPanelActions(
     if (member.name !== TEAM_LEAD) {
       actions.push({
         id: 'remove-member',
-        label: member.status === 'error' ? 'Remove stale teammate' : 'Remove teammate',
-        description: 'Clear its pane/session/mailbox and return active owned tasks to pending.',
+        label: member.status === 'error' ? `Remove stale teammate ${member.name}` : `Remove teammate ${member.name}`,
+        description: 'Current pane is never killed. Danger: clear this teammate pane binding, worker session, and mailbox; active owned tasks return to pending.',
         danger: true,
         result: { type: 'remove-member', teamName: data.team.name, memberName: member.name },
       })

@@ -56,6 +56,10 @@ function syncStoredIndex(data: PanelData, state: TeamPanelState): void {
   if (state.focus === 'members') state.selectedMemberIndex = state.selectedIndex
 }
 
+function resetDetailScroll(state: TeamPanelState): void {
+  state.detailScrollOffset = 0
+}
+
 function handleActionMenuInput(
   input: string,
   state: TeamPanelState,
@@ -71,7 +75,6 @@ function handleActionMenuInput(
   if (matchesKey(input, Key.escape) || input === 'q') {
     state.interactionMode = 'browse'
     state.actionMenu = undefined
-    state.footerHint = 'Actions closed'
     deps.requestRender()
     return
   }
@@ -95,9 +98,9 @@ function handleActionMenuInput(
 
   if (action.id === 'toggle-details') {
     state.isDetailExpanded = !state.isDetailExpanded
+    resetDetailScroll(state)
     state.interactionMode = 'browse'
     state.actionMenu = undefined
-    state.footerHint = state.isDetailExpanded ? 'Details expanded' : 'Details collapsed'
     deps.requestRender()
     return
   }
@@ -105,7 +108,6 @@ function handleActionMenuInput(
   if (action.id === 'refresh') {
     state.interactionMode = 'browse'
     state.actionMenu = undefined
-    state.footerHint = 'Refreshed'
     deps.refresh()
     return
   }
@@ -131,6 +133,19 @@ export function handleTeamPanelInput(
 
   if (matchesKey(input, Key.tab)) {
     cycleSection(data, state)
+    resetDetailScroll(state)
+    deps.requestRender()
+    return
+  }
+
+  if (state.isDetailExpanded && matchesKey(input, Key.up)) {
+    state.detailScrollOffset = Math.max(0, state.detailScrollOffset - 1)
+    deps.requestRender()
+    return
+  }
+
+  if (state.isDetailExpanded && matchesKey(input, Key.down)) {
+    state.detailScrollOffset += 1
     deps.requestRender()
     return
   }
@@ -138,6 +153,7 @@ export function handleTeamPanelInput(
   if (matchesKey(input, Key.up)) {
     state.selectedIndex = Math.max(0, state.selectedIndex - 1)
     syncStoredIndex(data, state)
+    resetDetailScroll(state)
     deps.requestRender()
     return
   }
@@ -145,6 +161,7 @@ export function handleTeamPanelInput(
   if (matchesKey(input, Key.down)) {
     state.selectedIndex = Math.min(Math.max(0, count - 1), state.selectedIndex + 1)
     syncStoredIndex(data, state)
+    resetDetailScroll(state)
     deps.requestRender()
     return
   }
@@ -152,7 +169,7 @@ export function handleTeamPanelInput(
   if (matchesKey(input, Key.escape) || input === 'q') {
     if (state.isDetailExpanded) {
       state.isDetailExpanded = false
-      state.footerHint = 'Details collapsed'
+      resetDetailScroll(state)
       deps.requestRender()
       return
     }
@@ -168,6 +185,5 @@ export function handleTeamPanelInput(
     ...menu,
     selectedIndex: 0,
   }
-  state.footerHint = 'Choose action'
   deps.requestRender()
 }
