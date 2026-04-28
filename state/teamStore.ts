@@ -54,6 +54,29 @@ export function createInitialTeamState(input: {
   }
 }
 
+function stableSerialize(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableSerialize).join(',')}]`
+  }
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, entryValue]) => entryValue !== undefined)
+      .sort(([a], [b]) => a.localeCompare(b))
+    return `{${entries.map(([key, entryValue]) => `${JSON.stringify(key)}:${stableSerialize(entryValue)}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function teamContentKey(state: TeamState): string {
+  const normalized = normalizeTeamState(state)
+  const { revision: _revision, ...content } = normalized
+  return stableSerialize(content)
+}
+
+function cloneTeamState(state: TeamState): TeamState {
+  return normalizeTeamState(JSON.parse(JSON.stringify(state)) as TeamState)
+}
+
 function ensureLeaderMemberShape(merged: TeamState): void {
   if (!merged.leaderSessionFile) return
 
@@ -110,13 +133,18 @@ export function updateTeamState(
     const current = readJsonFile<TeamState>(statePath)
     if (!current) return null
 
-    let next = normalizeTeamState(current)
+    const normalizedCurrent = normalizeTeamState(current)
+    let next = cloneTeamState(normalizedCurrent)
     const replacement = updater(next)
     if (replacement) next = replacement
     next = normalizeTeamState(next)
-    next.revision = (normalizeTeamState(current).revision ?? 0) + 1
     ensureLeaderMemberShape(next)
 
+    if (teamContentKey(next) === teamContentKey(normalizedCurrent)) {
+      return normalizedCurrent
+    }
+
+    next.revision = (normalizedCurrent.revision ?? 0) + 1
     writeJsonFile(statePath, next)
     return next
   })
@@ -158,6 +186,10 @@ export function updateMemberStatus(
 ): TeamState {
   const existing = state.members[memberName]
   if (!existing) return state
+  const changed = Object.entries(patch).some(
+    ([key, value]) => existing[key as keyof typeof existing] !== value,
+  )
+  if (!changed) return state
   state.members[memberName] = {
     ...existing,
     ...patch,

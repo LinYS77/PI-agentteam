@@ -359,6 +359,39 @@ module.exports = {
     const txMissing = modules.state.updateTeamState('missing-transaction-suite', team => team)
     assert.equal(txMissing, null, 'updateTeamState should return null for missing team')
 
+    const txBeforeNoop = modules.state.readTeamState('transaction-suite')
+    const txNoop = modules.state.updateTeamState('transaction-suite', () => undefined)
+    assert.equal(txNoop.revision, txBeforeNoop.revision, 'no-op updateTeamState should not bump revision')
+
+    const txBeforeSameStatus = modules.state.readTeamState('transaction-suite')
+    const sameStatusUpdatedAt = txBeforeSameStatus.members['transaction-worker'].updatedAt
+    const txSameStatus = modules.state.updateTeamState('transaction-suite', team => {
+      modules.state.updateMemberStatus(team, 'transaction-worker', {
+        status: 'running',
+        lastWakeReason: 'transaction update',
+      })
+    })
+    assert.equal(txSameStatus.revision, txBeforeSameStatus.revision, 'same member status patch should not bump revision')
+    assert.equal(
+      txSameStatus.members['transaction-worker'].updatedAt,
+      sameStatusUpdatedAt,
+      'same member status patch should not update member timestamp',
+    )
+
+    const txStatusChanged = modules.state.updateTeamState('transaction-suite', team => {
+      modules.state.updateMemberStatus(team, 'transaction-worker', {
+        status: 'idle',
+        lastWakeReason: 'transaction finished',
+      })
+    })
+    assert.equal(
+      txStatusChanged.revision,
+      txBeforeSameStatus.revision + 1,
+      'actual member status change should bump revision',
+    )
+    assert.equal(txStatusChanged.members['transaction-worker'].status, 'idle')
+    assert.equal(txStatusChanged.members['transaction-worker'].lastWakeReason, 'transaction finished')
+
     const concurrentTeam = modules.state.createInitialTeamState({
       teamName: 'concurrent-note-suite',
       leaderSessionFile: '/tmp/concurrent-note-leader.jsonl',
